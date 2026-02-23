@@ -146,13 +146,10 @@ func (h *Hub) tryMatch(conn *Conn) {
 		return
 	}
 
-	// Reject duplicate nickname
+	// If duplicate nickname, append "(2)" so both players can play
 	if h.waiting.Nickname == conn.Nickname {
-		log.Printf("rejecting duplicate nickname %q from %s", conn.Nickname, conn.ID)
-		go func() {
-			conn.ws.Close(websocket.StatusPolicyViolation, "duplicate nickname")
-		}()
-		return
+		conn.Nickname = conn.Nickname + "(2)"
+		log.Printf("renamed duplicate nickname to %q for %s", conn.Nickname, conn.ID)
 	}
 
 	opponent := h.waiting
