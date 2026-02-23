@@ -1,0 +1,19 @@
+# Dependencies
+client/node_modules
+server/static
+
+# Build artifacts
+client/dist
+
+# Version control
+.git
+.gitignore
+
+# IDE / tools
+.claude
+.vscode
+*.md
+
+# OS
+.DS_Store
+Thumbs.db
