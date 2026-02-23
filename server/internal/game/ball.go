@@ -107,29 +107,40 @@ func StepBall(b *BallState, players *[2]PlayerState) {
 	}
 }
 
-// shotAccuracy returns the probability (0.01..1.0) that a shot hits the hoop,
-// based on the shooter's x position relative to the opponent's hoop.
-// On opponent's half: 1.0 (always hits).
-// At center line: 0.2.
-// Under own hoop: 0.01.
+// shotAccuracy returns the probability (0.3..0.8) that a shot hits the hoop,
+// based on the shooter's distance from the opponent's hoop.
+// Under the hoop (dist ~0): 0.8
+// At the 3-point line (dist = ThreePointRadius): 0.5
+// Beyond 3-point line: smooth falloff down to 0.3 at max range.
 func shotAccuracy(playerX float32, playerIdx int8) float64 {
+	var hoopX float32
 	if playerIdx == 0 {
-		// P0 shoots at right hoop (x=720). Opponent half: x > 400
-		if playerX >= CourtWidth/2 {
-			return 1.0
-		}
-		// Own half: interpolate from center (0.2) to own hoop (0.01)
-		t := float64(CourtWidth/2-playerX) / float64(CourtWidth/2-HoopLeftX) // 0 at center, 1 at own hoop
-		t = math.Min(1, math.Max(0, t))
-		return 0.2 - t*0.19
+		hoopX = HoopRightX
+	} else {
+		hoopX = HoopLeftX
 	}
-	// P1 shoots at left hoop (x=80). Opponent half: x < 400
-	if playerX <= CourtWidth/2 {
-		return 1.0
+
+	dist := math.Abs(float64(playerX - hoopX))
+	threeP := float64(ThreePointRadius)
+
+	if dist <= threeP {
+		// Inside 3-point line: lerp 0.8 (under hoop) → 0.5 (at 3pt line)
+		t := dist / threeP // 0 at hoop, 1 at 3pt line
+		return 0.8 - t*0.3
 	}
-	t := float64(playerX-CourtWidth/2) / float64(HoopRightX-CourtWidth/2) // 0 at center, 1 at own hoop
+
+	// Beyond 3-point line: lerp 0.5 → 0.3 over remaining court distance
+	maxDist := float64(CourtWidth) - float64(hoopX)
+	if playerIdx == 1 {
+		maxDist = float64(hoopX)
+	}
+	remaining := maxDist - threeP
+	if remaining < 1 {
+		return 0.3
+	}
+	t := (dist - threeP) / remaining // 0 at 3pt line, 1 at far wall
 	t = math.Min(1, math.Max(0, t))
-	return 0.2 - t*0.19
+	return 0.5 - t*0.2
 }
 
 // ShootBall — server auto-calculates angle/force to hit opponent's hoop.
