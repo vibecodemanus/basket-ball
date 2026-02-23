@@ -107,11 +107,12 @@ func StepBall(b *BallState, players *[2]PlayerState) {
 	}
 }
 
-// shotAccuracy returns the probability (0.3..0.8) that a shot hits the hoop,
+// shotAccuracy returns the probability (0.15..0.6) that a shot hits the hoop,
 // based on the shooter's distance from the opponent's hoop.
-// Under the hoop (dist ~0): 0.8
-// At the 3-point line (dist = ThreePointRadius): 0.5
-// Beyond 3-point line: smooth falloff down to 0.3 at max range.
+// Under the hoop (dist ~0): 0.6
+// At the 3-point line (dist = ThreePointRadius): 0.25
+// At center court (max range): 0.15
+// Linear interpolation between zones.
 func shotAccuracy(playerX float32, playerIdx int8) float64 {
 	var hoopX float32
 	if playerIdx == 0 {
@@ -124,23 +125,23 @@ func shotAccuracy(playerX float32, playerIdx int8) float64 {
 	threeP := float64(ThreePointRadius)
 
 	if dist <= threeP {
-		// Inside 3-point line: lerp 0.8 (under hoop) → 0.5 (at 3pt line)
+		// Inside 3-point line: lerp 0.6 (under hoop) → 0.25 (at 3pt line)
 		t := dist / threeP // 0 at hoop, 1 at 3pt line
-		return 0.8 - t*0.3
+		return 0.6 - t*0.35
 	}
 
-	// Beyond 3-point line: lerp 0.5 → 0.3 over remaining court distance
+	// Beyond 3-point line: lerp 0.25 → 0.15 over remaining court distance
 	maxDist := float64(CourtWidth) - float64(hoopX)
 	if playerIdx == 1 {
 		maxDist = float64(hoopX)
 	}
 	remaining := maxDist - threeP
 	if remaining < 1 {
-		return 0.3
+		return 0.15
 	}
 	t := (dist - threeP) / remaining // 0 at 3pt line, 1 at far wall
 	t = math.Min(1, math.Max(0, t))
-	return 0.5 - t*0.2
+	return 0.25 - t*0.1
 }
 
 // ShootBall — server auto-calculates angle/force to hit opponent's hoop.
