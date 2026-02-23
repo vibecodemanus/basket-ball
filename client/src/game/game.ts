@@ -17,6 +17,7 @@ import {
 import { GameSocket } from '../network/socket';
 import { InputManager } from './input';
 import { TouchController } from './touch';
+import { Interpolator } from './interpolation';
 
 export class Game {
   socket: GameSocket;
@@ -32,6 +33,8 @@ export class Game {
   private prevMoveX = 0;
   private prevJump = false;
   private prevShoot = false;
+  private interpolator = new Interpolator();
+  private lastFrameTime = 0;
 
   constructor(socket: GameSocket, canvas: HTMLCanvasElement) {
     this.socket = socket;
@@ -47,7 +50,16 @@ export class Game {
     this.playerIndex = -1;
     this.gameOverData = null;
     this.lastScoreFlash = null;
+    this.interpolator.reset();
     // Don't reset opponentDisconnected here — it's reset on new GameStart
+  }
+
+  /** Called every frame by the render loop to get smoothed state */
+  getInterpolatedState(): GameStatePayload | null {
+    const now = performance.now();
+    const dt = Math.min(0.05, (now - this.lastFrameTime) / 1000);
+    this.lastFrameTime = now;
+    return this.interpolator.getDisplayState(dt);
   }
 
   private handleMessage(msg: Message): void {
@@ -59,11 +71,14 @@ export class Game {
         this.connected = true;
         this.gameOverData = null;
         this.opponentDisconnected = false;
+        this.interpolator.reset();
         console.log(`Game started! You are player ${this.playerIndex} (${this.playerNames[this.playerIndex]})`);
         break;
       }
       case MsgGameState: {
-        this.state = msg.payload as GameStatePayload;
+        const serverState = msg.payload as GameStatePayload;
+        this.state = serverState;
+        this.interpolator.pushServerState(serverState);
         break;
       }
       case MsgScored: {

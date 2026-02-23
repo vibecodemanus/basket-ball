@@ -6,7 +6,7 @@ import {
   RIM_WIDTH, BACKBOARD_HEIGHT,
 } from '../game/court';
 import { drawRect, drawCircle, drawCircleOutline, drawLine, drawText, drawRectOutline } from './draw';
-import { PlayerState, BallState, AnimState, GamePhase } from '../network/protocol';
+import { PlayerState, BallState, AnimState, GamePhase, GameStatePayload } from '../network/protocol';
 import { SpriteSet, buildSpriteSet, getSprite } from './sprites';
 import { ParticleSystem } from './particles';
 import { TouchController } from '../game/touch';
@@ -62,21 +62,24 @@ export class Renderer {
     // Update particles
     this.particles.update(dt);
 
-    if (game.state) {
+    // Use interpolated state for smooth rendering
+    const displayState = game.getInterpolatedState();
+
+    if (displayState) {
       // Clear particles on phase transition to Countdown (new game starting)
-      if (game.state.phase === GamePhase.Countdown && this.prevPhase !== GamePhase.Countdown) {
+      if (displayState.phase === GamePhase.Countdown && this.prevPhase !== GamePhase.Countdown) {
         this.particles.clear();
       }
-      this.prevPhase = game.state.phase;
+      this.prevPhase = displayState.phase;
 
       // Ball trail particles
-      if (game.state.ball.inFlight) {
-        this.particles.emitTrail(game.state.ball.x, game.state.ball.y);
+      if (displayState.ball.inFlight) {
+        this.particles.emitTrail(displayState.ball.x, displayState.ball.y);
       }
 
       // Landing dust detection
       for (let i = 0; i < 2; i++) {
-        const p = game.state.players[i];
+        const p = displayState.players[i];
         if (p.grounded && !this.prevGrounded[i]) {
           this.particles.emitDust(p.x, p.y + PLAYER_HEIGHT / 2);
         }
@@ -86,18 +89,18 @@ export class Renderer {
       // Draw particles behind players
       this.particles.draw(ctx);
 
-      this.drawPlayers(game.state.players, game.playerIndex, game.playerNames, game.state.tick, now);
-      this.drawBall(game.state.ball, dt);
+      this.drawPlayers(displayState.players, game.playerIndex, game.playerNames, displayState.tick, now);
+      this.drawBall(displayState.ball, dt);
 
-      this.drawHUD(game);
+      this.drawHUD(game, displayState);
 
       // Phase-specific overlays
-      if (game.isCountdown()) {
-        this.drawCountdown(game.state.phaseTimer);
+      if (displayState.phase === GamePhase.Countdown) {
+        this.drawCountdown(displayState.phaseTimer);
       }
 
-      if (game.isScoredPause()) {
-        this.drawScoredOverlay(game);
+      if (displayState.phase === GamePhase.Scored) {
+        this.drawScoredOverlay(game, displayState);
       }
 
       if (game.isGameOver()) {
@@ -114,7 +117,7 @@ export class Renderer {
     }
 
     // Score flash (during playing phase after a score)
-    if (game.lastScoreFlash && !game.isScoredPause()) {
+    if (game.lastScoreFlash && (!displayState || displayState.phase !== GamePhase.Scored)) {
       const elapsed = now - game.lastScoreFlash.time;
       if (elapsed < 1500) {
         const alpha = 1 - elapsed / 1500;
@@ -357,10 +360,9 @@ export class Renderer {
     ctx.restore();
   }
 
-  private drawHUD(game: Game): void {
-    if (!game.state) return;
+  private drawHUD(game: Game, displayState: GameStatePayload): void {
     const ctx = this.ctx;
-    const s = game.state;
+    const s = displayState;
 
     // Score panel background
     drawRect(ctx, COURT_WIDTH / 2 - 90, 4, 180, 74, 'rgba(0, 0, 0, 0.55)');
@@ -424,10 +426,11 @@ export class Renderer {
     }
   }
 
-  private drawScoredOverlay(game: Game): void {
-    if (!game.state || !game.lastScoreFlash) return;
+  private drawScoredOverlay(game: Game, displayState?: GameStatePayload): void {
+    const s = displayState || game.state;
+    if (!s || !game.lastScoreFlash) return;
     const ctx = this.ctx;
-    const timer = game.state.phaseTimer;
+    const timer = s.phaseTimer;
     const scorer = game.lastScoreFlash.scorer;
     const pts = game.lastScoreFlash.points;
 
@@ -442,7 +445,6 @@ export class Renderer {
     drawText(ctx, `+${pts}`, COURT_WIDTH / 2, COURT_HEIGHT / 2 - 50, ptsColor, 48, 'center');
     drawText(ctx, `${scorerName} SCORES!`, COURT_WIDTH / 2, COURT_HEIGHT / 2, scorerColor, 28, 'center');
 
-    const s = game.state;
     drawText(ctx, `${s.score[0]} — ${s.score[1]}`, COURT_WIDTH / 2, COURT_HEIGHT / 2 + 40, '#FFF', 22, 'center');
   }
 
