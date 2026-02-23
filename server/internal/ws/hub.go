@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/coder/websocket"
+	"github.com/vladimirvolkov/basketball/server/internal/middleware"
 )
 
 type RoomCreator interface {
@@ -30,10 +31,17 @@ type Hub struct {
 
 	activeRooms      atomic.Int64
 	totalConnections atomic.Uint64
+
+	limiter        *middleware.IPRateLimiter
+	originPatterns []string
 }
 
-func NewHub(creator RoomCreator) *Hub {
-	return &Hub{creator: creator}
+func NewHub(creator RoomCreator, limiter *middleware.IPRateLimiter, originPatterns []string) *Hub {
+	return &Hub{
+		creator:        creator,
+		limiter:        limiter,
+		originPatterns: originPatterns,
+	}
 }
 
 // Stats returns a snapshot of current server metrics.
@@ -57,17 +65,33 @@ func (h *Hub) RoomEnded() {
 }
 
 func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
-	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true,
-	})
+	// Rate limit: check per-IP connection limit
+	ip := middleware.RealIP(r)
+	if h.limiter != nil && !h.limiter.ConnectAllowed(ip) {
+		http.Error(w, "too many connections", http.StatusTooManyRequests)
+		return
+	}
+
+	acceptOpts := &websocket.AcceptOptions{}
+	if len(h.originPatterns) > 0 {
+		acceptOpts.OriginPatterns = h.originPatterns
+	}
+
+	ws, err := websocket.Accept(w, r, acceptOpts)
 	if err != nil {
+		if h.limiter != nil {
+			h.limiter.Disconnect(ip)
+		}
 		log.Printf("ws accept error: %v", err)
 		return
 	}
 
+	// Limit incoming message size (game messages are <500 bytes)
+	ws.SetReadLimit(1024)
+
 	h.totalConnections.Add(1)
 	id := fmt.Sprintf("player-%d", h.nextID.Add(1))
-	conn := NewConn(ws, id)
+	conn := NewConn(ws, id, ip, h.limiter)
 
 	// Parse nickname from query parameter
 	nickname := r.URL.Query().Get("name")
@@ -80,10 +104,18 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 		nickname = string(runes[:12])
 	}
 	conn.Nickname = nickname
-	log.Printf("new connection: %s [%s] (total: %d)", id, nickname, h.totalConnections.Load())
+	log.Printf("new connection: %s [%s] from %s (total: %d)", id, nickname, ip, h.totalConnections.Load())
 
 	// Use background context so connection lives beyond HTTP handler
 	go conn.WriteLoop(context.Background())
+
+	// Decrement rate limiter on disconnect
+	go func() {
+		<-conn.Done()
+		if h.limiter != nil {
+			h.limiter.Disconnect(ip)
+		}
+	}()
 
 	h.tryMatch(conn)
 

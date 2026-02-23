@@ -11,6 +11,11 @@ export class GameSocket {
   private closeHandler: CloseHandler | null = null;
   private reconnectTimer: number | null = null;
   private autoReconnect: boolean = true;
+  private reconnectAttempts: number = 0;
+
+  private static readonly MAX_RECONNECT_ATTEMPTS = 8;
+  private static readonly BASE_DELAY_MS = 1000;
+  private static readonly MAX_DELAY_MS = 30000;
 
   constructor(baseUrl: string, nickname: string) {
     this.baseUrl = baseUrl;
@@ -24,6 +29,7 @@ export class GameSocket {
 
     this.ws.onopen = () => {
       console.log('WebSocket connected');
+      this.reconnectAttempts = 0; // reset on successful connection
       if (this.reconnectTimer !== null) {
         clearTimeout(this.reconnectTimer);
         this.reconnectTimer = null;
@@ -72,11 +78,26 @@ export class GameSocket {
 
   private scheduleReconnect(): void {
     if (this.reconnectTimer !== null) return;
+    if (this.reconnectAttempts >= GameSocket.MAX_RECONNECT_ATTEMPTS) {
+      console.log('Max reconnect attempts reached, giving up');
+      return;
+    }
+
+    // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s, 30s, 30s
+    const delay = Math.min(
+      GameSocket.BASE_DELAY_MS * Math.pow(2, this.reconnectAttempts),
+      GameSocket.MAX_DELAY_MS
+    );
+    // Add jitter: +/- 25%
+    const jitter = delay * (0.75 + Math.random() * 0.5);
+
+    this.reconnectAttempts++;
+    console.log(`Reconnecting in ${Math.round(jitter)}ms (attempt ${this.reconnectAttempts}/${GameSocket.MAX_RECONNECT_ATTEMPTS})`);
+
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
-      console.log('Reconnecting...');
       this.connect();
-    }, 2000);
+    }, jitter);
   }
 
   disconnect(): void {

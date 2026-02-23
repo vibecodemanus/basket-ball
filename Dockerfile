@@ -29,6 +29,9 @@ FROM alpine:3.21
 
 RUN apk add --no-cache ca-certificates
 
+# Create non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
 WORKDIR /app
 
 # Copy binary from server builder
@@ -36,6 +39,10 @@ COPY --from=server-builder /app/game-server .
 
 # Copy static assets from client builder
 COPY --from=client-builder /app/server/static ./static
+
+# Ensure ownership and switch to non-root user
+RUN chown -R appuser:appgroup /app
+USER appuser
 
 ENV PORT=8080
 ENV STATIC_DIR=./static

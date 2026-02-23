@@ -94,6 +94,13 @@ func (r *Room) handleMessage(playerIdx int, msg ws.Message) {
 		if err := json.Unmarshal(msg.Payload, &input); err != nil {
 			return
 		}
+		// Clamp moveX to valid range [-1, 1]
+		if input.MoveX < -1 {
+			input.MoveX = -1
+		}
+		if input.MoveX > 1 {
+			input.MoveX = 1
+		}
 		r.inputMu.Lock()
 		r.inputs[playerIdx] = input
 		r.inputMu.Unlock()

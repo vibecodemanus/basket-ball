@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/vladimirvolkov/basketball/server/internal/middleware"
 )
 
 type Conn struct {
@@ -16,14 +17,18 @@ type Conn struct {
 	once     sync.Once
 	ID       string
 	Nickname string
+	IP       string
+	limiter  *middleware.IPRateLimiter
 }
 
-func NewConn(ws *websocket.Conn, id string) *Conn {
+func NewConn(ws *websocket.Conn, id string, ip string, limiter *middleware.IPRateLimiter) *Conn {
 	return &Conn{
-		ws:     ws,
-		sendCh: make(chan []byte, 64),
-		done:   make(chan struct{}),
-		ID:     id,
+		ws:      ws,
+		sendCh:  make(chan []byte, 64),
+		done:    make(chan struct{}),
+		ID:      id,
+		IP:      ip,
+		limiter: limiter,
 	}
 }
 
@@ -50,6 +55,10 @@ func (c *Conn) ReadLoop(ctx context.Context) <-chan Message {
 				log.Printf("conn %s: read error: %v", c.ID, err)
 				c.Close()
 				return
+			}
+			// Per-IP message rate limiting
+			if c.limiter != nil && !c.limiter.MessageAllowed(c.IP) {
+				continue // drop message silently, don't disconnect
 			}
 			msg, err := Decode(data)
 			if err != nil {
