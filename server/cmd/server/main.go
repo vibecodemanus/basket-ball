@@ -42,6 +42,9 @@ func (gm *GameManager) CreateRoom(p1, p2 *ws.Conn) {
 }
 
 func main() {
+	// Write logs to stdout so Railway doesn't mark them as errors
+	log.SetOutput(os.Stdout)
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
