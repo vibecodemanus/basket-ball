@@ -3,132 +3,110 @@ import { GameStatePayload, PlayerState, BallState } from '../network/protocol';
 /**
  * Interpolation buffer: smooths server state updates.
  *
- * Instead of snapping to the latest server state, we keep two snapshots
- * and interpolate between them. The renderer always shows a position
- * slightly in the past (one server tick behind), but movement is smooth.
- *
- * If a snapshot is too old (>100ms gap), we snap instantly to avoid
- * showing stale data.
+ * Only interpolates X (horizontal movement) — this is where jitter
+ * is most visible. Y position, ball, and all state flags use server
+ * values directly to keep landing, shooting, and scoring responsive.
  */
 
-interface Snapshot {
-  state: GameStatePayload;
-  time: number; // performance.now() when received
-}
-
-const LERP_SPEED = 15; // how fast to catch up (per second). Higher = snappier, lower = smoother
-const SNAP_THRESHOLD = 80; // pixels — if delta > this, snap instead of interpolating
-const BALL_SNAP_THRESHOLD = 120; // ball can move faster, larger threshold
+const LERP_SPEED = 25; // horizontal catch-up speed (per second)
+const SNAP_THRESHOLD_X = 50; // px — if horizontal delta > this, snap
 
 function lerpNum(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
-function lerpPlayer(out: PlayerState, target: PlayerState, t: number, snap: boolean): void {
-  if (snap) {
-    out.x = target.x;
-    out.y = target.y;
-  } else {
-    out.x = lerpNum(out.x, target.x, t);
-    out.y = lerpNum(out.y, target.y, t);
-  }
-  // Non-positional fields — always use latest
-  out.vx = target.vx;
-  out.vy = target.vy;
-  out.facing = target.facing;
-  out.anim = target.anim;
-  out.grounded = target.grounded;
-  out.hasBall = target.hasBall;
-}
-
-function lerpBall(out: BallState, target: BallState, t: number, snap: boolean): void {
-  if (snap) {
-    out.x = target.x;
-    out.y = target.y;
-  } else {
-    out.x = lerpNum(out.x, target.x, t);
-    out.y = lerpNum(out.y, target.y, t);
-  }
-  out.vx = target.vx;
-  out.vy = target.vy;
-  out.owner = target.owner;
-  out.inFlight = target.inFlight;
-}
-
-function distSq(ax: number, ay: number, bx: number, by: number): number {
-  const dx = ax - bx;
-  const dy = ay - by;
-  return dx * dx + dy * dy;
-}
-
 export class Interpolator {
   /** The interpolated state that the renderer reads */
   private display: GameStatePayload | null = null;
-  private lastUpdateTime = 0;
 
   /**
    * Called when a new server state arrives.
-   * Initializes display state on first call.
    */
   pushServerState(state: GameStatePayload): void {
     if (!this.display) {
-      // First state — use directly, no interpolation
+      // First state — clone and use directly
       this.display = JSON.parse(JSON.stringify(state));
-      this.lastUpdateTime = performance.now();
       return;
     }
 
-    // Copy non-interpolated fields immediately
-    this.display.tick = state.tick;
-    this.display.phase = state.phase;
-    this.display.phaseTimer = state.phaseTimer;
-    this.display.score = [state.score[0], state.score[1]];
-    this.display.shotClock = state.shotClock;
-    this.display.gameClock = state.gameClock;
-    this.display.winner = state.winner;
+    // Save current display X positions before overwriting
+    const prevX0 = this.display.players[0].x;
+    const prevX1 = this.display.players[1].x;
+    const prevBallX = this.display.ball.x;
 
-    this.lastUpdateTime = performance.now();
+    // Overwrite everything with server state
+    const d = this.display;
+    d.tick = state.tick;
+    d.phase = state.phase;
+    d.phaseTimer = state.phaseTimer;
+    d.score = [state.score[0], state.score[1]];
+    d.shotClock = state.shotClock;
+    d.gameClock = state.gameClock;
+    d.winner = state.winner;
 
-    // Store target positions — actual lerp happens in getDisplayState()
-    // We store the target in a side channel
-    (this.display as any)._targetPlayers = [
-      { ...state.players[0] },
-      { ...state.players[1] },
-    ];
-    (this.display as any)._targetBall = { ...state.ball };
+    // Players: copy all fields directly (Y, anim, grounded, etc.)
+    for (let i = 0; i < 2; i++) {
+      const src = state.players[i];
+      const dst = d.players[i];
+      dst.y = src.y;
+      dst.vx = src.vx;
+      dst.vy = src.vy;
+      dst.facing = src.facing;
+      dst.anim = src.anim;
+      dst.grounded = src.grounded;
+      dst.hasBall = src.hasBall;
+    }
+
+    // Ball: copy all fields directly (Y, velocity, owner, etc.)
+    const bs = state.ball;
+    const bd = d.ball;
+    bd.y = bs.y;
+    bd.vx = bs.vx;
+    bd.vy = bs.vy;
+    bd.owner = bs.owner;
+    bd.inFlight = bs.inFlight;
+
+    // Store target X — lerp happens in getDisplayState()
+    (d as any)._targetX0 = state.players[0].x;
+    (d as any)._targetX1 = state.players[1].x;
+    (d as any)._targetBallX = state.ball.x;
+
+    // Keep current interpolated X (will lerp toward target)
+    d.players[0].x = prevX0;
+    d.players[1].x = prevX1;
+    d.ball.x = prevBallX;
   }
 
   /**
    * Returns the smoothed state for rendering.
-   * Call this every frame with the frame's delta time.
+   * Only X positions are interpolated — everything else is server-authoritative.
    */
   getDisplayState(dt: number): GameStatePayload | null {
     if (!this.display) return null;
 
-    const target = this.display as any;
-    const targetPlayers = target._targetPlayers as [PlayerState, PlayerState] | undefined;
-    const targetBall = target._targetBall as BallState | undefined;
+    const d = this.display as any;
+    const tX0 = d._targetX0 as number | undefined;
+    const tX1 = d._targetX1 as number | undefined;
+    const tBallX = d._targetBallX as number | undefined;
 
-    if (!targetPlayers || !targetBall) {
-      return this.display;
-    }
+    if (tX0 === undefined) return this.display;
 
-    // Lerp factor: higher dt = more catch-up
     const t = Math.min(1, LERP_SPEED * dt);
 
-    // Interpolate each player
-    for (let i = 0; i < 2; i++) {
-      const curr = this.display.players[i];
-      const tgt = targetPlayers[i];
-      const d = distSq(curr.x, curr.y, tgt.x, tgt.y);
-      const snap = d > SNAP_THRESHOLD * SNAP_THRESHOLD;
-      lerpPlayer(curr, tgt, t, snap);
-    }
+    // Lerp player X positions
+    const dx0 = Math.abs(this.display.players[0].x - tX0);
+    this.display.players[0].x = dx0 > SNAP_THRESHOLD_X ? tX0 : lerpNum(this.display.players[0].x, tX0, t);
 
-    // Interpolate ball
-    const ballD = distSq(this.display.ball.x, this.display.ball.y, targetBall.x, targetBall.y);
-    const ballSnap = ballD > BALL_SNAP_THRESHOLD * BALL_SNAP_THRESHOLD;
-    lerpBall(this.display.ball, targetBall, t, ballSnap);
+    const dx1 = Math.abs(this.display.players[1].x - tX1!);
+    this.display.players[1].x = dx1 > SNAP_THRESHOLD_X ? tX1! : lerpNum(this.display.players[1].x, tX1!, t);
+
+    // Lerp ball X (only when free/in-flight, snap when held by player)
+    if (this.display.ball.owner >= 0) {
+      this.display.ball.x = tBallX!;
+    } else {
+      const dBx = Math.abs(this.display.ball.x - tBallX!);
+      this.display.ball.x = dBx > SNAP_THRESHOLD_X ? tBallX! : lerpNum(this.display.ball.x, tBallX!, t);
+    }
 
     return this.display;
   }
@@ -136,6 +114,5 @@ export class Interpolator {
   /** Reset on disconnect / new game */
   reset(): void {
     this.display = null;
-    this.lastUpdateTime = 0;
   }
 }
