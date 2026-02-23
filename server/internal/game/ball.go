@@ -89,10 +89,20 @@ func StepBall(b *BallState, players *[2]PlayerState) {
 		}
 	}
 
+	// Decrement per-player pickup delay
+	for i := range players {
+		if players[i].PickupDelay > 0 {
+			players[i].PickupDelay--
+		}
+	}
+
 	// Pickup check (only when ball is free, cooldown expired, and not flying fast)
 	if b.Owner == -1 && b.PickupCooldown == 0 && (!b.InFlight || (math.Abs(float64(b.VX)) < 100 && math.Abs(float64(b.VY)) < 100)) {
 		for i := range players {
 			p := &players[i]
+			if p.PickupDelay > 0 {
+				continue // this player can't pick up yet (just lost the ball)
+			}
 			dx := p.X - b.X
 			dy := p.Y - b.Y
 			dist := float32(math.Sqrt(float64(dx*dx + dy*dy)))
@@ -384,6 +394,9 @@ func TrySteal(b *BallState, stealer *PlayerState, stealerIdx int8, holder *Playe
 		// Ball starts at holder position
 		b.X = holder.X
 		b.Y = holder.Y
+
+		// Holder can't pick up ball for 30 ticks (~0.5s) — gives stealer a chance
+		holder.PickupDelay = 30
 
 		log.Printf("STEAL SUCCESS: player %d stole from player %d at (%.1f,%.1f)", stealerIdx, holderIdx, stealer.X, stealer.Y)
 	} else {

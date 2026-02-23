@@ -83,6 +83,7 @@ type PlayerState struct {
 	Grounded      bool      `json:"grounded"`
 	HasBall       bool      `json:"hasBall"`
 	StealCooldown uint8     `json:"-"` // ticks until next steal attempt allowed (not sent to client)
+	PickupDelay   uint8     `json:"-"` // ticks this player can't pick up the ball (after losing it)
 }
 
 type BallState struct {
