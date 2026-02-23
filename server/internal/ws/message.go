@@ -40,7 +40,8 @@ type PingPayload struct {
 }
 
 type GameStartPayload struct {
-	PlayerIndex uint8 `json:"playerIndex"`
+	PlayerIndex uint8     `json:"playerIndex"`
+	Names       [2]string `json:"names"`
 }
 
 type PongPayload struct {

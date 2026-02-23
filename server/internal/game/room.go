@@ -11,17 +11,19 @@ import (
 )
 
 type Room struct {
-	conns   [2]*ws.Conn
-	state   GameState
-	inputs  [2]PlayerInput
-	inputMu sync.Mutex
-	cancel  context.CancelFunc
-	done    chan struct{}
+	conns     [2]*ws.Conn
+	nicknames [2]string
+	state     GameState
+	inputs    [2]PlayerInput
+	inputMu   sync.Mutex
+	cancel    context.CancelFunc
+	done      chan struct{}
 }
 
 func NewRoom(p1, p2 *ws.Conn) *Room {
 	r := &Room{
-		conns: [2]*ws.Conn{p1, p2},
+		conns:     [2]*ws.Conn{p1, p2},
+		nicknames: [2]string{p1.Nickname, p2.Nickname},
 	}
 	r.state = GameState{
 		Phase:      PhaseCountdown,
@@ -42,10 +44,11 @@ func (r *Room) Start(ctx context.Context) {
 	ctx, r.cancel = context.WithCancel(ctx)
 	r.done = make(chan struct{})
 
-	// Send GameStart to both players
+	// Send GameStart to both players (includes both nicknames)
 	for i, c := range r.conns {
 		msg, _ := ws.NewMessage(ws.MsgGameStart, 0, ws.GameStartPayload{
 			PlayerIndex: uint8(i),
+			Names:       r.nicknames,
 		})
 		c.Send(msg)
 	}

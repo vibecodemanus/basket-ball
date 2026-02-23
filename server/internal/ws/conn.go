@@ -10,11 +10,12 @@ import (
 )
 
 type Conn struct {
-	ws     *websocket.Conn
-	sendCh chan []byte
-	done   chan struct{}
-	once   sync.Once
-	ID     string
+	ws       *websocket.Conn
+	sendCh   chan []byte
+	done     chan struct{}
+	once     sync.Once
+	ID       string
+	Nickname string
 }
 
 func NewConn(ws *websocket.Conn, id string) *Conn {

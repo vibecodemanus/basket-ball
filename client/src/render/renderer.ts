@@ -12,7 +12,6 @@ import { ParticleSystem } from './particles';
 import { TouchController } from '../game/touch';
 
 const PLAYER_COLORS = ['#3B82F6', '#EF4444']; // blue, red
-const PLAYER_NAMES = ['P1', 'P2'];
 const BALL_COLOR = '#F97316';
 const COURT_FLOOR_COLOR = '#C4853C';
 const COURT_FLOOR_DARK = '#B07430';
@@ -87,7 +86,7 @@ export class Renderer {
       // Draw particles behind players
       this.particles.draw(ctx);
 
-      this.drawPlayers(game.state.players, game.playerIndex, game.state.tick, now);
+      this.drawPlayers(game.state.players, game.playerIndex, game.playerNames, game.state.tick, now);
       this.drawBall(game.state.ball, dt);
 
       this.drawHUD(game);
@@ -251,7 +250,7 @@ export class Renderer {
 
   // ── Dynamic elements ──
 
-  private drawPlayers(players: [PlayerState, PlayerState], localIdx: number, tick: number, now: number): void {
+  private drawPlayers(players: [PlayerState, PlayerState], localIdx: number, names: [string, string], tick: number, now: number): void {
     const ctx = this.ctx;
 
     for (let i = 0; i < 2; i++) {
@@ -292,7 +291,7 @@ export class Renderer {
       }
 
       // Name tag
-      drawText(ctx, PLAYER_NAMES[i], p.x, y - 4, PLAYER_COLORS[i], 10, 'center');
+      drawText(ctx, names[i], p.x, y - 4, PLAYER_COLORS[i], 10, 'center');
     }
   }
 
@@ -366,13 +365,14 @@ export class Renderer {
     // Score panel background
     drawRect(ctx, COURT_WIDTH / 2 - 90, 4, 180, 74, 'rgba(0, 0, 0, 0.55)');
 
+    // Player nicknames (left and right of panel)
+    const names = game.playerNames;
+    drawText(ctx, names[0], COURT_WIDTH / 2 - 98, 30, PLAYER_COLORS[0], 13, 'right');
+    drawText(ctx, names[1], COURT_WIDTH / 2 + 98, 30, PLAYER_COLORS[1], 13, 'left');
+
     // Score (main row)
     const scoreText = `${s.score[0]}  —  ${s.score[1]}`;
     drawText(ctx, scoreText, COURT_WIDTH / 2, 34, '#FFF', 28, 'center');
-
-    // Player labels (bottom corners of panel)
-    drawText(ctx, 'P1', COURT_WIDTH / 2 - 80, 74, PLAYER_COLORS[0], 10, 'left');
-    drawText(ctx, 'P2', COURT_WIDTH / 2 + 80, 74, PLAYER_COLORS[1], 10, 'right');
 
     // Game clock
     const mins = Math.floor(Math.max(0, s.gameClock) / 60);
@@ -435,7 +435,7 @@ export class Renderer {
     ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
     ctx.fillRect(0, 0, COURT_WIDTH, COURT_HEIGHT);
 
-    const scorerName = PLAYER_NAMES[scorer];
+    const scorerName = game.playerNames[scorer];
     const scorerColor = PLAYER_COLORS[scorer];
 
     const ptsColor = pts >= 3 ? '#A855F7' : '#FFD700';
@@ -462,11 +462,11 @@ export class Renderer {
       drawText(ctx, '—', COURT_WIDTH / 2, 180, '#64748B', 32, 'center');
       drawText(ctx, `${s.score[1]}`, COURT_WIDTH / 2 + 80, 180, PLAYER_COLORS[1], 56, 'center');
 
-      drawText(ctx, 'P1', COURT_WIDTH / 2 - 80, 210, PLAYER_COLORS[0], 16, 'center');
-      drawText(ctx, 'P2', COURT_WIDTH / 2 + 80, 210, PLAYER_COLORS[1], 16, 'center');
+      drawText(ctx, game.playerNames[0], COURT_WIDTH / 2 - 80, 210, PLAYER_COLORS[0], 14, 'center');
+      drawText(ctx, game.playerNames[1], COURT_WIDTH / 2 + 80, 210, PLAYER_COLORS[1], 14, 'center');
 
       if (winner >= 0) {
-        const winnerName = PLAYER_NAMES[winner];
+        const winnerName = game.playerNames[winner];
         const winnerColor = PLAYER_COLORS[winner];
         const isLocalWinner = winner === game.playerIndex;
         const msg = isLocalWinner ? 'YOU WIN!' : 'YOU LOSE';

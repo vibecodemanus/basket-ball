@@ -5,19 +5,22 @@ export type CloseHandler = () => void;
 
 export class GameSocket {
   private ws: WebSocket | null = null;
-  private url: string;
+  private baseUrl: string;
+  private nickname: string;
   private handler: MessageHandler | null = null;
   private closeHandler: CloseHandler | null = null;
   private reconnectTimer: number | null = null;
   private autoReconnect: boolean = true;
 
-  constructor(url: string) {
-    this.url = url;
+  constructor(baseUrl: string, nickname: string) {
+    this.baseUrl = baseUrl;
+    this.nickname = nickname;
   }
 
   connect(): void {
     this.autoReconnect = true;
-    this.ws = new WebSocket(this.url);
+    const url = `${this.baseUrl}?name=${encodeURIComponent(this.nickname)}`;
+    this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {
       console.log('WebSocket connected');

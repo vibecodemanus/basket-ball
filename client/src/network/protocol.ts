@@ -24,6 +24,7 @@ export interface PlayerInputPayload {
 
 export interface GameStartPayload {
   playerIndex: number;
+  names: [string, string];
 }
 
 export const enum GamePhase {

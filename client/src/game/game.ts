@@ -22,6 +22,7 @@ export class Game {
   socket: GameSocket;
   input: InputManager;
   playerIndex: number = -1;
+  playerNames: [string, string] = ['P1', 'P2'];
   state: GameStatePayload | null = null;
   connected: boolean = false;
   opponentDisconnected: boolean = false;
@@ -54,10 +55,11 @@ export class Game {
       case MsgGameStart: {
         const payload = msg.payload as GameStartPayload;
         this.playerIndex = payload.playerIndex;
+        this.playerNames = payload.names || ['P1', 'P2'];
         this.connected = true;
         this.gameOverData = null;
         this.opponentDisconnected = false;
-        console.log(`Game started! You are player ${this.playerIndex}`);
+        console.log(`Game started! You are player ${this.playerIndex} (${this.playerNames[this.playerIndex]})`);
         break;
       }
       case MsgGameState: {

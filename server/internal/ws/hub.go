@@ -68,7 +68,19 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	h.totalConnections.Add(1)
 	id := fmt.Sprintf("player-%d", h.nextID.Add(1))
 	conn := NewConn(ws, id)
-	log.Printf("new connection: %s (total: %d)", id, h.totalConnections.Load())
+
+	// Parse nickname from query parameter
+	nickname := r.URL.Query().Get("name")
+	if nickname == "" {
+		nickname = "Player"
+	}
+	// Limit to 12 runes
+	runes := []rune(nickname)
+	if len(runes) > 12 {
+		nickname = string(runes[:12])
+	}
+	conn.Nickname = nickname
+	log.Printf("new connection: %s [%s] (total: %d)", id, nickname, h.totalConnections.Load())
 
 	// Use background context so connection lives beyond HTTP handler
 	go conn.WriteLoop(context.Background())
@@ -102,10 +114,19 @@ func (h *Hub) tryMatch(conn *Conn) {
 		return
 	}
 
+	// Reject duplicate nickname
+	if h.waiting.Nickname == conn.Nickname {
+		log.Printf("rejecting duplicate nickname %q from %s", conn.Nickname, conn.ID)
+		go func() {
+			conn.ws.Close(websocket.StatusPolicyViolation, "duplicate nickname")
+		}()
+		return
+	}
+
 	opponent := h.waiting
 	h.waiting = nil
 
 	h.activeRooms.Add(1)
-	log.Printf("matched %s vs %s (rooms: %d)", opponent.ID, conn.ID, h.activeRooms.Load())
+	log.Printf("matched %s [%s] vs %s [%s] (rooms: %d)", opponent.ID, opponent.Nickname, conn.ID, conn.Nickname, h.activeRooms.Load())
 	h.creator.CreateRoom(opponent, conn)
 }

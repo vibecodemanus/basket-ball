@@ -13,6 +13,7 @@
       align-items: center;
       min-height: 100vh;
       overflow: hidden;
+      font-family: monospace;
     }
     canvas {
       image-rendering: pixelated;
@@ -22,10 +23,89 @@
       -webkit-touch-callout: none;
       -webkit-user-select: none;
       user-select: none;
+      display: none;
+    }
+
+    /* Nickname overlay */
+    #nickname-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      background: rgba(15, 23, 42, 0.97);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+    }
+    #nickname-overlay.hidden { display: none; }
+    .nickname-box {
+      text-align: center;
+    }
+    .nickname-box h2 {
+      color: #FFD700;
+      font-size: 32px;
+      margin-bottom: 8px;
+      letter-spacing: 4px;
+    }
+    .nickname-box h3 {
+      color: #FFD700;
+      font-size: 32px;
+      margin-bottom: 32px;
+      letter-spacing: 4px;
+    }
+    .nickname-box input {
+      background: #1E293B;
+      border: 2px solid #475569;
+      color: #F8FAFC;
+      font-family: monospace;
+      font-size: 20px;
+      padding: 10px 16px;
+      text-align: center;
+      width: 260px;
+      outline: none;
+      border-radius: 4px;
+    }
+    .nickname-box input:focus {
+      border-color: #F97316;
+    }
+    .nickname-box input::placeholder {
+      color: #64748B;
+    }
+    .nickname-box button {
+      display: block;
+      margin: 16px auto 0;
+      background: #F97316;
+      border: none;
+      color: #FFF;
+      font-family: monospace;
+      font-size: 18px;
+      font-weight: bold;
+      padding: 10px 48px;
+      cursor: pointer;
+      border-radius: 4px;
+      letter-spacing: 2px;
+    }
+    .nickname-box button:hover {
+      background: #EA580C;
+    }
+    .nickname-error {
+      color: #EF4444;
+      font-size: 12px;
+      margin-top: 8px;
+      min-height: 16px;
     }
   </style>
 </head>
 <body>
+  <div id="nickname-overlay">
+    <div class="nickname-box">
+      <h2>PIXEL</h2>
+      <h3>BASKETBALL</h3>
+      <input id="nickname-input" type="text" maxlength="12" placeholder="Your nickname" autofocus>
+      <div class="nickname-error" id="nickname-error"></div>
+      <button id="nickname-ok">PLAY</button>
+    </div>
+  </div>
   <canvas id="game"></canvas>
   <script src="bundle.js"></script>
 </body>
