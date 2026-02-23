@@ -12,6 +12,7 @@ type visitor struct {
 	connections int
 	tokens      int
 	lastRefill  time.Time
+	lastSeen    time.Time
 }
 
 // IPRateLimiter tracks per-IP connection counts and message rates.
@@ -20,20 +21,24 @@ type IPRateLimiter struct {
 	visitors map[string]*visitor
 
 	maxConnsPerIP int
+	maxVisitors   int
 	msgRate       int
 	msgWindow     time.Duration
+	trustProxy    bool
 }
 
 // NewIPRateLimiter creates a rate limiter.
 //   - maxConnsPerIP: max simultaneous WebSocket connections per IP
 //   - msgRate: max messages allowed per msgWindow
 //   - msgWindow: time window for message rate
-func NewIPRateLimiter(maxConnsPerIP, msgRate int, msgWindow time.Duration) *IPRateLimiter {
+func NewIPRateLimiter(maxConnsPerIP, msgRate int, msgWindow time.Duration, trustProxy bool) *IPRateLimiter {
 	rl := &IPRateLimiter{
 		visitors:      make(map[string]*visitor),
 		maxConnsPerIP: maxConnsPerIP,
+		maxVisitors:   10000,
 		msgRate:       msgRate,
 		msgWindow:     msgWindow,
+		trustProxy:    trustProxy,
 	}
 	go rl.cleanup()
 	return rl
@@ -45,12 +50,18 @@ func (rl *IPRateLimiter) ConnectAllowed(ip string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
+	now := time.Now()
 	v, ok := rl.visitors[ip]
 	if !ok {
+		// Reject if visitor map is at capacity (prevents memory exhaustion)
+		if len(rl.visitors) >= rl.maxVisitors {
+			return false
+		}
 		rl.visitors[ip] = &visitor{
 			connections: 1,
 			tokens:      rl.msgRate,
-			lastRefill:  time.Now(),
+			lastRefill:  now,
+			lastSeen:    now,
 		}
 		return true
 	}
@@ -58,6 +69,7 @@ func (rl *IPRateLimiter) ConnectAllowed(ip string) bool {
 		return false
 	}
 	v.connections++
+	v.lastSeen = now
 	return true
 }
 
@@ -111,14 +123,16 @@ func (rl *IPRateLimiter) MessageAllowed(ip string) bool {
 	return true
 }
 
-// cleanup removes stale entries (no connections) every 5 minutes.
+// cleanup removes stale entries every minute.
+// Entries with no active connections and not seen for 2+ minutes are removed.
 func (rl *IPRateLimiter) cleanup() {
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 	for range ticker.C {
 		rl.mu.Lock()
+		now := time.Now()
 		for ip, v := range rl.visitors {
-			if v.connections <= 0 {
+			if v.connections <= 0 && now.Sub(v.lastSeen) > 2*time.Minute {
 				delete(rl.visitors, ip)
 			}
 		}
@@ -127,13 +141,18 @@ func (rl *IPRateLimiter) cleanup() {
 }
 
 // RealIP extracts the client IP from the request.
-// Checks X-Forwarded-For (for reverse proxies like Fly.io) then RemoteAddr.
-func RealIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if comma := strings.Index(xff, ","); comma > 0 {
-			return strings.TrimSpace(xff[:comma])
+// Only trusts X-Forwarded-For when trustProxy is true (server behind Railway/nginx).
+func (rl *IPRateLimiter) RealIP(r *http.Request) string {
+	if rl.trustProxy {
+		// Take the LAST entry before the proxy — rightmost is added by trusted proxy
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			// Use first IP (client IP added by the outermost trusted proxy)
+			ip := strings.TrimSpace(parts[0])
+			if net.ParseIP(ip) != nil {
+				return ip
+			}
 		}
-		return strings.TrimSpace(xff)
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

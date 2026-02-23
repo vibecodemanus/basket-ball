@@ -91,9 +91,6 @@ function startGame(nickname: string): void {
   const game = new Game(socket, canvas);
   const renderer = new Renderer(canvas);
 
-  // Expose game for debugging
-  (window as any).__game = game;
-
   // Wire up score confetti
   game.onScore = (scorerIdx: number) => {
     const hoopX = scorerIdx === 0 ? HOOP_RIGHT_X : HOOP_LEFT_X;
@@ -136,9 +133,10 @@ function startGame(nickname: string): void {
 // ── Init: check saved nickname ──
 
 const saved = getSavedNickname();
-if (saved) {
+const validSaved = saved ? validateNickname(saved) : null;
+if (validSaved) {
   hideOverlay();
-  startGame(saved);
+  startGame(validSaved);
 } else {
   showOverlay();
 }

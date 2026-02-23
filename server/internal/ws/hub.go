@@ -5,12 +5,43 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 
 	"github.com/coder/websocket"
 	"github.com/vladimirvolkov/basketball/server/internal/middleware"
 )
+
+// nicknameRe allows letters, digits, underscore, dash, spaces, cyrillic.
+var nicknameRe = regexp.MustCompile(`^[a-zA-Z0-9_\- \x{0400}-\x{04FF}]+$`)
+
+const maxActiveRooms = 100
+
+// sanitizeNickname validates and cleans a nickname.
+// Strips invalid chars, enforces 2-12 rune length, ensures valid UTF-8.
+func sanitizeNickname(raw string) string {
+	if !utf8.ValidString(raw) {
+		return "Player"
+	}
+	// Strip characters not matching the allowed set
+	cleaned := []rune{}
+	for _, r := range raw {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '_' || r == '-' || r == ' ' ||
+			(r >= 0x0400 && r <= 0x04FF) {
+			cleaned = append(cleaned, r)
+		}
+	}
+	if len(cleaned) < 2 {
+		return "Player"
+	}
+	if len(cleaned) > 12 {
+		cleaned = cleaned[:12]
+	}
+	return string(cleaned)
+}
 
 type RoomCreator interface {
 	CreateRoom(p1, p2 *Conn)
@@ -66,7 +97,7 @@ func (h *Hub) RoomEnded() {
 
 func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	// Rate limit: check per-IP connection limit
-	ip := middleware.RealIP(r)
+	ip := h.limiter.RealIP(r)
 	if h.limiter != nil && !h.limiter.ConnectAllowed(ip) {
 		http.Error(w, "too many connections", http.StatusTooManyRequests)
 		return
@@ -93,16 +124,8 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	id := fmt.Sprintf("player-%d", h.nextID.Add(1))
 	conn := NewConn(ws, id, ip, h.limiter)
 
-	// Parse nickname from query parameter
-	nickname := r.URL.Query().Get("name")
-	if nickname == "" {
-		nickname = "Player"
-	}
-	// Limit to 12 runes
-	runes := []rune(nickname)
-	if len(runes) > 12 {
-		nickname = string(runes[:12])
-	}
+	// Parse and sanitize nickname from query parameter
+	nickname := sanitizeNickname(r.URL.Query().Get("name"))
 	conn.Nickname = nickname
 	log.Printf("new connection: %s [%s] from %s (total: %d)", id, nickname, ip, h.totalConnections.Load())
 
@@ -146,9 +169,24 @@ func (h *Hub) tryMatch(conn *Conn) {
 		return
 	}
 
-	// If duplicate nickname, append "(2)" so both players can play
+	// Limit active rooms to prevent resource exhaustion
+	if h.activeRooms.Load() >= maxActiveRooms {
+		log.Printf("max rooms reached, rejecting %s", conn.ID)
+		go func() {
+			conn.ws.Close(websocket.StatusTryAgainLater, "server full")
+		}()
+		return
+	}
+
+	// If duplicate nickname, append "(2)" — trim to stay within 12 runes
 	if h.waiting.Nickname == conn.Nickname {
-		conn.Nickname = conn.Nickname + "(2)"
+		suffix := "(2)"
+		runes := []rune(conn.Nickname)
+		maxBase := 12 - len([]rune(suffix))
+		if len(runes) > maxBase {
+			runes = runes[:maxBase]
+		}
+		conn.Nickname = string(runes) + suffix
 		log.Printf("renamed duplicate nickname to %q for %s", conn.Nickname, conn.ID)
 	}
 
