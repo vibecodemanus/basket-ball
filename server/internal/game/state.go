@@ -43,6 +43,11 @@ const (
 	BlockRange        = float32(50)
 	DeflectSpeedMult  = float32(0.5)
 
+	// Phase 12: Steal mechanic
+	StealRange         = float32(40)  // proximity for steal attempt
+	StealChance        = 0.5          // 50% success probability
+	StealCooldownTicks = uint8(45)    // ~0.75 sec anti-spam cooldown
+
 	// 3-point line: distance from hoop center
 	ThreePointRadius = float32(150)
 )
@@ -75,8 +80,9 @@ type PlayerState struct {
 	VY        float32   `json:"vy"`
 	Facing    int8      `json:"facing"`
 	Anim      AnimState `json:"anim"`
-	Grounded  bool      `json:"grounded"`
-	HasBall   bool      `json:"hasBall"`
+	Grounded      bool      `json:"grounded"`
+	HasBall       bool      `json:"hasBall"`
+	StealCooldown uint8     `json:"-"` // ticks until next steal attempt allowed (not sent to client)
 }
 
 type BallState struct {

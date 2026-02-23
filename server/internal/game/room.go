@@ -183,28 +183,46 @@ func (r *Room) tickPlaying() {
 	}
 	r.inputMu.Unlock()
 
+	// Decrement steal cooldown for both players
+	for i := range s.Players {
+		if s.Players[i].StealCooldown > 0 {
+			s.Players[i].StealCooldown--
+		}
+	}
+
 	// Apply inputs
 	for i := range s.Players {
 		ApplyInput(&s.Players[i], inputs[i])
 
-		// Handle shooting — accuracy depends on position
-		if inputs[i].Shoot && s.Players[i].HasBall {
-			// Don't allow shooting from behind opponent's backboard
-			canShoot := true
-			if i == 0 && s.Players[i].X > RightHoop.BackboardX {
-				canShoot = false
-			}
-			if i == 1 && s.Players[i].X < LeftHoop.BackboardX {
-				canShoot = false
-			}
+		if inputs[i].Shoot {
+			if s.Players[i].HasBall {
+				// Handle shooting — accuracy depends on position
+				// Don't allow shooting from behind opponent's backboard
+				canShoot := true
+				if i == 0 && s.Players[i].X > RightHoop.BackboardX {
+					canShoot = false
+				}
+				if i == 1 && s.Players[i].X < LeftHoop.BackboardX {
+					canShoot = false
+				}
 
-			if canShoot {
-				// Check for block by opponent
+				if canShoot {
+					// Check for block by opponent
+					otherIdx := 1 - i
+					blocker := &s.Players[otherIdx]
+					blocked := TryBlockShot(&s.Ball, &s.Players[i], int8(i), blocker)
+					if !blocked {
+						ShootBall(&s.Ball, &s.Players[i], int8(i))
+					}
+				}
+			} else if s.Players[i].StealCooldown == 0 {
+				// No ball — attempt steal if opponent has ball
 				otherIdx := 1 - i
-				blocker := &s.Players[otherIdx]
-				blocked := TryBlockShot(&s.Ball, &s.Players[i], int8(i), blocker)
-				if !blocked {
-					ShootBall(&s.Ball, &s.Players[i], int8(i))
+				if s.Players[otherIdx].HasBall {
+					attempted := TrySteal(&s.Ball, &s.Players[i], int8(i), &s.Players[otherIdx], int8(otherIdx))
+					if attempted {
+						s.Players[i].StealCooldown = StealCooldownTicks
+					}
 				}
 			}
 		}

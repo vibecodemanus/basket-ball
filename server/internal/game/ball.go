@@ -297,7 +297,7 @@ func CheckBallPlayerCollision(b *BallState, players *[2]PlayerState) {
 
 			// Reset shooter (ball is now deflected, anyone can pick it up)
 			b.ShooterIdx = -1
-			b.PickupCooldown = 15 // short cooldown after deflection
+			b.PickupCooldown = 8 // short cooldown after deflection (reduced from 15)
 
 			log.Printf("INTERCEPT: player %d deflected ball at (%.1f,%.1f) → VX=%.1f VY=%.1f", i, b.X, b.Y, b.VX, b.VY)
 			return
@@ -349,4 +349,46 @@ func TryBlockShot(b *BallState, shooter *PlayerState, shooterIdx int8, blocker *
 
 	log.Printf("BLOCK: shooter %d blocked by defender at (%.1f,%.1f)", shooterIdx, blocker.X, blocker.Y)
 	return true
+}
+
+// TrySteal attempts to steal the ball from a holder.
+// Returns true if the attempt was made (for cooldown activation), regardless of success.
+// On success: ball is knocked free in a random direction.
+func TrySteal(b *BallState, stealer *PlayerState, stealerIdx int8, holder *PlayerState, holderIdx int8) bool {
+	// Distance check
+	dx := stealer.X - holder.X
+	dy := stealer.Y - holder.Y
+	dist := float32(math.Sqrt(float64(dx*dx + dy*dy)))
+	if dist > StealRange {
+		return false // too far — no attempt
+	}
+
+	// Attempt made — check success
+	if rand.Float64() < StealChance {
+		// Success! Knock ball free
+		b.Owner = -1
+		holder.HasBall = false
+		b.InFlight = true
+		b.ShooterIdx = -1
+		b.ShotAgeTicks = 0
+		b.PickupCooldown = 15 // cooldown before anyone can pick up
+
+		// Ball flies away from stealer in a random-ish direction
+		dirX := float32(150)
+		if rand.Intn(2) == 0 {
+			dirX = -dirX
+		}
+		b.VX = dirX
+		b.VY = -100 // slight upward
+
+		// Ball starts at holder position
+		b.X = holder.X
+		b.Y = holder.Y
+
+		log.Printf("STEAL SUCCESS: player %d stole from player %d at (%.1f,%.1f)", stealerIdx, holderIdx, stealer.X, stealer.Y)
+	} else {
+		log.Printf("STEAL FAIL: player %d tried to steal from player %d", stealerIdx, holderIdx)
+	}
+
+	return true // attempt was made (activate cooldown)
 }
