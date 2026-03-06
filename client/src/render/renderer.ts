@@ -277,38 +277,38 @@ export class Renderer {
       // Sprite
       ctx.drawImage(sprite, x, y);
 
-      // Steal cooldown bar (vertical bar next to player)
+      // Steal cooldown bar — shown for BOTH players (wide vertical bar)
       if (p.stealCd > 0) {
-        const barW = 5;
-        const barH = PLAYER_HEIGHT + 4;
-        const barX = x - barW - 4; // left side of player
-        const barY = y - 2;
+        const barW = 8;
+        const barH = PLAYER_HEIGHT + 8;
+        const barX = x - barW - 3; // left side of player
+        const barY = y - 4;
         const fill = p.stealCd / STEAL_CD_MAX; // 1.0 = full cooldown, 0.0 = ready
 
-        // Glow effect behind bar
+        // Glow effect
         const glowR = Math.floor(255 * fill);
-        const glowG = Math.floor(200 * (1 - fill));
-        ctx.shadowColor = `rgb(${glowR}, ${glowG}, 40)`;
-        ctx.shadowBlur = 8;
+        const glowG = Math.floor(180 * (1 - fill));
+        ctx.shadowColor = `rgb(${glowR}, ${glowG}, 30)`;
+        ctx.shadowBlur = 12;
 
         // Background
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
         ctx.fillRect(barX, barY, barW, barH);
 
-        // Cooldown fill from bottom up (red → yellow → green)
+        // Cooldown fill from bottom up (red → green)
         const fillH = barH * fill;
         const cr = Math.floor(255 * fill);
-        const cg = Math.floor(220 * (1 - fill));
-        ctx.fillStyle = `rgb(${cr}, ${cg}, 30)`;
-        ctx.fillRect(barX, barY + barH - fillH, barW, fillH);
+        const cg = Math.floor(200 * (1 - fill));
+        ctx.fillStyle = `rgb(${cr}, ${cg}, 20)`;
+        ctx.fillRect(barX + 1, barY + barH - fillH, barW - 2, fillH);
 
         // Reset shadow
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
 
-        // Bright border
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
-        ctx.lineWidth = 1;
+        // Bright white border
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = 2;
         ctx.strokeRect(barX, barY, barW, barH);
       }
 
