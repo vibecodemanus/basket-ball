@@ -64,8 +64,8 @@ func main() {
 	// Trust X-Forwarded-For only when behind a reverse proxy (Railway, nginx)
 	trustProxy := os.Getenv("TRUST_PROXY") == "true"
 
-	// Create rate limiter: max 4 conns/IP, 120 msgs/sec/IP
-	limiter := middleware.NewIPRateLimiter(4, 120, time.Second, trustProxy)
+	// Create rate limiter: max 200 conns/IP (100 rooms × 2 players), 120 msgs/sec/IP
+	limiter := middleware.NewIPRateLimiter(200, 120, time.Second, trustProxy)
 
 	manager := &GameManager{}
 	hub := ws.NewHub(manager, limiter, originPatterns)
