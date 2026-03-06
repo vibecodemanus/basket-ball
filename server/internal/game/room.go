@@ -139,15 +139,30 @@ func (r *Room) handleDisconnect(playerIdx int) {
 }
 
 func (r *Room) gameLoop(ctx context.Context) {
-	ticker := time.NewTicker(time.Second / TickRate)
-	defer ticker.Stop()
+	const interval = time.Second / TickRate
+	next := time.Now().Add(interval)
 
 	for {
+		// Check for cancellation
 		select {
-		case <-ticker.C:
-			r.tick()
 		case <-ctx.Done():
 			return
+		default:
+		}
+
+		now := time.Now()
+		if now.Before(next) {
+			time.Sleep(next.Sub(now))
+		}
+
+		r.tick()
+		next = next.Add(interval)
+
+		// If we've fallen behind (e.g. GC pause), skip ahead instead of
+		// bursting many ticks at once — this prevents the stutter that
+		// happens when queued ticks fire back-to-back after a pause.
+		if time.Now().After(next.Add(2 * interval)) {
+			next = time.Now().Add(interval)
 		}
 	}
 }

@@ -255,6 +255,7 @@ export class Renderer {
 
   private drawPlayers(players: [PlayerState, PlayerState], localIdx: number, names: [string, string], tick: number, now: number): void {
     const ctx = this.ctx;
+    const STEAL_CD_MAX = 30; // must match server StealCooldownTicks
 
     for (let i = 0; i < 2; i++) {
       const p = players[i];
@@ -275,6 +276,31 @@ export class Renderer {
 
       // Sprite
       ctx.drawImage(sprite, x, y);
+
+      // Steal cooldown bar (vertical bar next to player)
+      if (p.stealCd > 0) {
+        const barW = 3;
+        const barH = PLAYER_HEIGHT;
+        const barX = x - barW - 3; // left side of player
+        const barY = y;
+        const fill = p.stealCd / STEAL_CD_MAX; // 1.0 = full cooldown, 0.0 = ready
+
+        // Background (dark)
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(barX, barY, barW, barH);
+
+        // Fill from bottom up (red → green gradient)
+        const fillH = barH * fill;
+        const r = Math.floor(255 * fill);
+        const g = Math.floor(255 * (1 - fill));
+        ctx.fillStyle = `rgb(${r}, ${g}, 60)`;
+        ctx.fillRect(barX, barY + barH - fillH, barW, fillH);
+
+        // Border
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(barX, barY, barW, barH);
+      }
 
       // Local player highlight
       if (i === localIdx) {

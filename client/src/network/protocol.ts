@@ -69,6 +69,7 @@ export interface PlayerState {
   anim: AnimState;
   grounded: boolean;
   hasBall: boolean;
+  stealCd: number; // ticks remaining on steal cooldown (0 = ready)
 }
 
 export interface BallState {

@@ -46,7 +46,7 @@ const (
 	// Phase 12: Steal mechanic
 	StealRange         = float32(40)  // proximity for steal attempt
 	StealChance        = 0.5          // 50% success probability
-	StealCooldownTicks = uint8(45)    // ~0.75 sec anti-spam cooldown
+	StealCooldownTicks = uint8(30)    // 0.5 sec cooldown (30 ticks at 60Hz)
 
 	// 3-point line: distance from hoop center
 	ThreePointRadius = float32(150)
@@ -82,7 +82,7 @@ type PlayerState struct {
 	Anim      AnimState `json:"anim"`
 	Grounded      bool      `json:"grounded"`
 	HasBall       bool      `json:"hasBall"`
-	StealCooldown uint8     `json:"-"` // ticks until next steal attempt allowed (not sent to client)
+	StealCooldown uint8     `json:"stealCd"` // ticks until next steal attempt allowed
 	PickupDelay   uint8     `json:"-"` // ticks this player can't pick up the ball (after losing it)
 }
 

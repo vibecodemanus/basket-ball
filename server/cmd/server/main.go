@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -55,6 +56,11 @@ func (gm *GameManager) CreateTournamentRoom(p1, p2 *ws.Conn) {
 func main() {
 	// Use all available CPU cores for game loop parallelism
 	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	// Reduce GC frequency — default GOGC=100 triggers too often at 60 Hz × 100 rooms,
+	// causing stop-the-world pauses that lag ALL connections simultaneously.
+	// GOGC=400 lets heap grow 4× before collecting, trading memory for lower latency.
+	debug.SetGCPercent(400)
 
 	// Write logs to stdout so Railway doesn't mark them as errors
 	log.SetOutput(os.Stdout)
