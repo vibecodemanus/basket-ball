@@ -33,11 +33,13 @@ func securityHeaders(next http.Handler) http.Handler {
 type GameManager struct {
 	hub        *ws.Hub
 	tournament *game.Tournament
+	engine     *game.Engine
 }
 
 func (gm *GameManager) CreateRoom(p1, p2 *ws.Conn) {
 	room := game.NewRoom(p1, p2)
 	room.Start(context.Background())
+	gm.engine.AddRoom(room)
 	go func() {
 		<-room.Done()
 		gm.hub.RoomEnded()
@@ -47,6 +49,7 @@ func (gm *GameManager) CreateRoom(p1, p2 *ws.Conn) {
 func (gm *GameManager) CreateTournamentRoom(p1, p2 *ws.Conn) {
 	room := game.NewTournamentRoom(p1, p2, gm.tournament)
 	room.Start(context.Background())
+	gm.engine.AddRoom(room)
 	go func() {
 		<-room.Done()
 		gm.hub.RoomEnded()
@@ -88,8 +91,13 @@ func main() {
 	// Higher msg rate avoids dropping legitimate input at 60 Hz from multiple connections
 	limiter := middleware.NewIPRateLimiter(200, 300, time.Second, trustProxy)
 
+	// Multi-core game engine: one worker per CPU core, each pinned to an OS thread.
+	// All game rooms are distributed across workers and ticked in parallel at 60 Hz.
+	engine := game.NewEngine(runtime.NumCPU())
+	engine.Start(context.Background())
+
 	tournament := game.NewTournament()
-	manager := &GameManager{tournament: tournament}
+	manager := &GameManager{tournament: tournament, engine: engine}
 	hub := ws.NewHub(manager, limiter, originPatterns, tournament)
 	manager.hub = hub
 

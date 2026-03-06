@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vladimirvolkov/basketball/server/internal/ws"
@@ -18,7 +19,8 @@ type Room struct {
 	inputMu    sync.Mutex
 	cancel     context.CancelFunc
 	done       chan struct{}
-	tournament *Tournament // nil for regular games
+	tournament *Tournament  // nil for regular games
+	finished   atomic.Bool  // set when room should be removed from engine
 }
 
 func NewRoom(p1, p2 *ws.Conn) *Room {
@@ -47,6 +49,8 @@ func NewTournamentRoom(p1, p2 *ws.Conn, t *Tournament) *Room {
 	return r
 }
 
+// Start initializes the room: sends GameStart, starts read loops.
+// The game loop is driven externally by Engine via TickExternal().
 func (r *Room) Start(ctx context.Context) {
 	ctx, r.cancel = context.WithCancel(ctx)
 	r.done = make(chan struct{})
@@ -66,14 +70,24 @@ func (r *Room) Start(ctx context.Context) {
 		go r.readLoop(ctx, c, i)
 	}
 
-	// Start game loop (closes done channel on exit)
+	// Monitor context cancellation so the engine knows to remove us
 	go func() {
-		r.gameLoop(ctx)
-		close(r.done)
+		<-ctx.Done()
+		r.finished.Store(true)
 	}()
 }
 
-// Done returns a channel that closes when the room's game loop exits.
+// TickExternal is called by the Engine at 60 Hz.
+// Returns true if the room is still active, false when it should be removed.
+func (r *Room) TickExternal() bool {
+	if r.finished.Load() {
+		return false
+	}
+	r.tick()
+	return true
+}
+
+// Done returns a channel that closes when the room is removed from the engine.
 func (r *Room) Done() <-chan struct{} {
 	return r.done
 }
@@ -136,35 +150,6 @@ func (r *Room) handleDisconnect(playerIdx int) {
 	})
 	r.conns[other].Send(msg)
 	r.cancel()
-}
-
-func (r *Room) gameLoop(ctx context.Context) {
-	const interval = time.Second / TickRate
-	next := time.Now().Add(interval)
-
-	for {
-		// Check for cancellation
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		now := time.Now()
-		if now.Before(next) {
-			time.Sleep(next.Sub(now))
-		}
-
-		r.tick()
-		next = next.Add(interval)
-
-		// If we've fallen behind (e.g. GC pause), skip ahead instead of
-		// bursting many ticks at once — this prevents the stutter that
-		// happens when queued ticks fire back-to-back after a pause.
-		if time.Now().After(next.Add(2 * interval)) {
-			next = time.Now().Add(interval)
-		}
-	}
 }
 
 func (r *Room) tick() {
