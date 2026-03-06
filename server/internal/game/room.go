@@ -442,7 +442,13 @@ func (r *Room) broadcastState() {
 		log.Printf("failed to encode state: %v", err)
 		return
 	}
+	// Encode once — send identical bytes to both players
+	data, err := ws.Encode(msg)
+	if err != nil {
+		log.Printf("failed to marshal state message: %v", err)
+		return
+	}
 	for _, c := range r.conns {
-		c.Send(msg)
+		c.SendRaw(data)
 	}
 }

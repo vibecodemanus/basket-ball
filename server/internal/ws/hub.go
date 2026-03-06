@@ -138,7 +138,11 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	acceptOpts := &websocket.AcceptOptions{}
+	acceptOpts := &websocket.AcceptOptions{
+		// Disable compression — game state messages are small (<500 bytes)
+		// and compression adds significant CPU overhead at 60 Hz per room.
+		CompressionMode: websocket.CompressionDisabled,
+	}
 	if len(h.originPatterns) > 0 {
 		acceptOpts.OriginPatterns = h.originPatterns
 	}
@@ -153,7 +157,7 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Limit incoming message size (game messages are <500 bytes)
-	ws.SetReadLimit(1024)
+	ws.SetReadLimit(2048)
 
 	h.totalConnections.Add(1)
 	id := fmt.Sprintf("player-%d", h.nextID.Add(1))

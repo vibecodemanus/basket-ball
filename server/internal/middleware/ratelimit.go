@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"hash/fnv"
 	"net"
 	"net/http"
 	"strings"
@@ -15,13 +16,20 @@ type visitor struct {
 	lastSeen    time.Time
 }
 
-// IPRateLimiter tracks per-IP connection counts and message rates.
-type IPRateLimiter struct {
+const numShards = 32
+
+type shard struct {
 	mu       sync.Mutex
 	visitors map[string]*visitor
+}
+
+// IPRateLimiter tracks per-IP connection counts and message rates.
+// Uses sharded locks so different IPs rarely contend on the same mutex.
+type IPRateLimiter struct {
+	shards [numShards]shard
 
 	maxConnsPerIP int
-	maxVisitors   int
+	maxVisitors   int // per-shard max
 	msgRate       int
 	msgWindow     time.Duration
 	trustProxy    bool
@@ -33,31 +41,41 @@ type IPRateLimiter struct {
 //   - msgWindow: time window for message rate
 func NewIPRateLimiter(maxConnsPerIP, msgRate int, msgWindow time.Duration, trustProxy bool) *IPRateLimiter {
 	rl := &IPRateLimiter{
-		visitors:      make(map[string]*visitor),
 		maxConnsPerIP: maxConnsPerIP,
-		maxVisitors:   10000,
+		maxVisitors:   10000 / numShards, // spread across shards
 		msgRate:       msgRate,
 		msgWindow:     msgWindow,
 		trustProxy:    trustProxy,
+	}
+	for i := range rl.shards {
+		rl.shards[i].visitors = make(map[string]*visitor)
 	}
 	go rl.cleanup()
 	return rl
 }
 
+// shardFor returns the shard for a given IP using FNV hash.
+func (rl *IPRateLimiter) shardFor(ip string) *shard {
+	h := fnv.New32a()
+	h.Write([]byte(ip))
+	return &rl.shards[h.Sum32()%numShards]
+}
+
 // ConnectAllowed checks if an IP can open a new connection.
 // If allowed, increments the connection count and returns true.
 func (rl *IPRateLimiter) ConnectAllowed(ip string) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
+	s := rl.shardFor(ip)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	now := time.Now()
-	v, ok := rl.visitors[ip]
+	v, ok := s.visitors[ip]
 	if !ok {
-		// Reject if visitor map is at capacity (prevents memory exhaustion)
-		if len(rl.visitors) >= rl.maxVisitors {
+		// Reject if this shard is at capacity (prevents memory exhaustion)
+		if len(s.visitors) >= rl.maxVisitors {
 			return false
 		}
-		rl.visitors[ip] = &visitor{
+		s.visitors[ip] = &visitor{
 			connections: 1,
 			tokens:      rl.msgRate,
 			lastRefill:  now,
@@ -75,10 +93,11 @@ func (rl *IPRateLimiter) ConnectAllowed(ip string) bool {
 
 // Disconnect decrements the connection count for an IP.
 func (rl *IPRateLimiter) Disconnect(ip string) {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
+	s := rl.shardFor(ip)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	v, ok := rl.visitors[ip]
+	v, ok := s.visitors[ip]
 	if !ok {
 		return
 	}
@@ -91,13 +110,14 @@ func (rl *IPRateLimiter) Disconnect(ip string) {
 // MessageAllowed checks if a message from this IP is within rate limits.
 // Uses token bucket: refills msgRate tokens per msgWindow.
 func (rl *IPRateLimiter) MessageAllowed(ip string) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
+	s := rl.shardFor(ip)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	v, ok := rl.visitors[ip]
+	v, ok := s.visitors[ip]
 	if !ok {
 		// No tracked visitor — allow but create entry
-		rl.visitors[ip] = &visitor{
+		s.visitors[ip] = &visitor{
 			tokens:     rl.msgRate - 1,
 			lastRefill: time.Now(),
 		}
@@ -129,14 +149,17 @@ func (rl *IPRateLimiter) cleanup() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 	for range ticker.C {
-		rl.mu.Lock()
 		now := time.Now()
-		for ip, v := range rl.visitors {
-			if v.connections <= 0 && now.Sub(v.lastSeen) > 2*time.Minute {
-				delete(rl.visitors, ip)
+		for i := range rl.shards {
+			s := &rl.shards[i]
+			s.mu.Lock()
+			for ip, v := range s.visitors {
+				if v.connections <= 0 && now.Sub(v.lastSeen) > 2*time.Minute {
+					delete(s.visitors, ip)
+				}
 			}
+			s.mu.Unlock()
 		}
-		rl.mu.Unlock()
 	}
 }
 

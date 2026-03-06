@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -52,6 +53,9 @@ func (gm *GameManager) CreateTournamentRoom(p1, p2 *ws.Conn) {
 }
 
 func main() {
+	// Use all available CPU cores for game loop parallelism
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
 	// Write logs to stdout so Railway doesn't mark them as errors
 	log.SetOutput(os.Stdout)
 
@@ -74,8 +78,9 @@ func main() {
 	// Trust X-Forwarded-For only when behind a reverse proxy (Railway, nginx)
 	trustProxy := os.Getenv("TRUST_PROXY") == "true"
 
-	// Create rate limiter: max 200 conns/IP (100 rooms × 2 players), 120 msgs/sec/IP
-	limiter := middleware.NewIPRateLimiter(200, 120, time.Second, trustProxy)
+	// Create rate limiter: max 200 conns/IP (100 rooms × 2 players), 300 msgs/sec/IP
+	// Higher msg rate avoids dropping legitimate input at 60 Hz from multiple connections
+	limiter := middleware.NewIPRateLimiter(200, 300, time.Second, trustProxy)
 
 	tournament := game.NewTournament()
 	manager := &GameManager{tournament: tournament}
@@ -120,6 +125,8 @@ func main() {
 		Addr:              ":" + port,
 		Handler:           securityHeaders(mux),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      0, // disable for long-lived WebSocket connections
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 16, // 64KB
 	}
