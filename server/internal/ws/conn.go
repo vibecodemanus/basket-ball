@@ -18,6 +18,7 @@ type Conn struct {
 	ID       string
 	Nickname string
 	IP       string
+	Mode     string // "" for regular, "tournament" for tournament
 	limiter  *middleware.IPRateLimiter
 }
 

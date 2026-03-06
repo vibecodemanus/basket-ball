@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unicode/utf8"
 
 	"github.com/coder/websocket"
@@ -43,15 +44,42 @@ func sanitizeNickname(raw string) string {
 	return string(cleaned)
 }
 
+// deduplicateNickname appends "(2)" if nicknames match.
+func deduplicateNickname(existing, incoming string) string {
+	if existing != incoming {
+		return incoming
+	}
+	suffix := "(2)"
+	runes := []rune(incoming)
+	maxBase := 12 - len([]rune(suffix))
+	if len(runes) > maxBase {
+		runes = runes[:maxBase]
+	}
+	return string(runes) + suffix
+}
+
+// TournamentMatcher provides tournament history lookups (breaks import cycle with game package).
+type TournamentMatcher interface {
+	HavePlayedBefore(nick1, nick2 string) bool
+	TimesPlayed(nick1, nick2 string) int
+}
+
 type RoomCreator interface {
 	CreateRoom(p1, p2 *Conn)
+	CreateTournamentRoom(p1, p2 *Conn)
 }
 
 // HubStats holds live server metrics.
 type HubStats struct {
-	ActiveRooms      int64  `json:"activeRooms"`
-	TotalConnections uint64 `json:"totalConnections"`
-	WaitingPlayers   int    `json:"waitingPlayers"`
+	ActiveRooms         int64  `json:"activeRooms"`
+	TotalConnections    uint64 `json:"totalConnections"`
+	WaitingPlayers      int    `json:"waitingPlayers"`
+	TournamentQueueSize int    `json:"tournamentQueueSize"`
+}
+
+type tournamentEntry struct {
+	conn     *Conn
+	joinedAt time.Time
 }
 
 type Hub struct {
@@ -60,6 +88,10 @@ type Hub struct {
 	creator RoomCreator
 	nextID  atomic.Uint64
 
+	// Tournament
+	tournamentQueue []*tournamentEntry
+	tournament      TournamentMatcher
+
 	activeRooms      atomic.Int64
 	totalConnections atomic.Uint64
 
@@ -67,11 +99,12 @@ type Hub struct {
 	originPatterns []string
 }
 
-func NewHub(creator RoomCreator, limiter *middleware.IPRateLimiter, originPatterns []string) *Hub {
+func NewHub(creator RoomCreator, limiter *middleware.IPRateLimiter, originPatterns []string, tournament TournamentMatcher) *Hub {
 	return &Hub{
 		creator:        creator,
 		limiter:        limiter,
 		originPatterns: originPatterns,
+		tournament:     tournament,
 	}
 }
 
@@ -82,11 +115,13 @@ func (h *Hub) Stats() HubStats {
 	if h.waiting != nil {
 		w = 1
 	}
+	tq := len(h.tournamentQueue)
 	h.mu.Unlock()
 	return HubStats{
-		ActiveRooms:      h.activeRooms.Load(),
-		TotalConnections: h.totalConnections.Load(),
-		WaitingPlayers:   w,
+		ActiveRooms:         h.activeRooms.Load(),
+		TotalConnections:    h.totalConnections.Load(),
+		WaitingPlayers:      w,
+		TournamentQueueSize: tq,
 	}
 }
 
@@ -127,7 +162,12 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	// Parse and sanitize nickname from query parameter
 	nickname := sanitizeNickname(r.URL.Query().Get("name"))
 	conn.Nickname = nickname
-	log.Printf("new connection: %s [%s] from %s (total: %d)", id, nickname, ip, h.totalConnections.Load())
+
+	// Parse game mode
+	mode := r.URL.Query().Get("mode")
+	conn.Mode = mode
+
+	log.Printf("new connection: %s [%s] mode=%s from %s (total: %d)", id, nickname, mode, ip, h.totalConnections.Load())
 
 	// Use background context so connection lives beyond HTTP handler
 	go conn.WriteLoop(context.Background())
@@ -140,7 +180,12 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	h.tryMatch(conn)
+	// Route to appropriate matchmaking
+	if mode == "tournament" {
+		h.tryTournamentMatch(conn)
+	} else {
+		h.tryMatch(conn)
+	}
 
 	// Block until the connection is closed — keeps HTTP handler alive
 	// which keeps the underlying TCP connection open for WebSocket
@@ -178,17 +223,7 @@ func (h *Hub) tryMatch(conn *Conn) {
 		return
 	}
 
-	// If duplicate nickname, append "(2)" — trim to stay within 12 runes
-	if h.waiting.Nickname == conn.Nickname {
-		suffix := "(2)"
-		runes := []rune(conn.Nickname)
-		maxBase := 12 - len([]rune(suffix))
-		if len(runes) > maxBase {
-			runes = runes[:maxBase]
-		}
-		conn.Nickname = string(runes) + suffix
-		log.Printf("renamed duplicate nickname to %q for %s", conn.Nickname, conn.ID)
-	}
+	conn.Nickname = deduplicateNickname(h.waiting.Nickname, conn.Nickname)
 
 	opponent := h.waiting
 	h.waiting = nil
@@ -196,4 +231,121 @@ func (h *Hub) tryMatch(conn *Conn) {
 	h.activeRooms.Add(1)
 	log.Printf("matched %s [%s] vs %s [%s] (rooms: %d)", opponent.ID, opponent.Nickname, conn.ID, conn.Nickname, h.activeRooms.Load())
 	h.creator.CreateRoom(opponent, conn)
+}
+
+// ── Tournament matchmaking ──
+
+func (h *Hub) tryTournamentMatch(conn *Conn) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Try to find an opponent this player hasn't played before
+	for i, candidate := range h.tournamentQueue {
+		if candidate.conn == conn {
+			continue
+		}
+		if !h.tournament.HavePlayedBefore(conn.Nickname, candidate.conn.Nickname) {
+			// New opponent found — match them
+			h.tournamentQueue = append(h.tournamentQueue[:i], h.tournamentQueue[i+1:]...)
+			h.startTournamentRoom(candidate.conn, conn)
+			return
+		}
+	}
+
+	// No new opponent available — add to queue
+	entry := &tournamentEntry{conn: conn, joinedAt: time.Now()}
+	h.tournamentQueue = append(h.tournamentQueue, entry)
+	log.Printf("%s [%s] waiting in tournament queue (size: %d)", conn.ID, conn.Nickname, len(h.tournamentQueue))
+
+	// Clean up on disconnect
+	go func() {
+		<-conn.Done()
+		h.mu.Lock()
+		for i, e := range h.tournamentQueue {
+			if e.conn == conn {
+				h.tournamentQueue = append(h.tournamentQueue[:i], h.tournamentQueue[i+1:]...)
+				log.Printf("%s disconnected from tournament queue", conn.ID)
+				break
+			}
+		}
+		h.mu.Unlock()
+	}()
+
+	// 20-second fallback: allow rematch if no new opponent appears
+	go func() {
+		timer := time.NewTimer(20 * time.Second)
+		defer timer.Stop()
+
+		select {
+		case <-timer.C:
+			h.tryTournamentRematch(conn)
+		case <-conn.Done():
+			return
+		}
+	}()
+}
+
+func (h *Hub) tryTournamentRematch(conn *Conn) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Find conn in queue
+	connIdx := -1
+	for i, e := range h.tournamentQueue {
+		if e.conn == conn {
+			connIdx = i
+			break
+		}
+	}
+	if connIdx == -1 {
+		return // already matched or disconnected
+	}
+
+	// Find any other player in queue, preferring least-played opponent
+	bestIdx := -1
+	bestCount := int(^uint(0) >> 1) // max int
+	for i, candidate := range h.tournamentQueue {
+		if i == connIdx {
+			continue
+		}
+		count := h.tournament.TimesPlayed(conn.Nickname, candidate.conn.Nickname)
+		if count < bestCount {
+			bestCount = count
+			bestIdx = i
+		}
+	}
+
+	if bestIdx == -1 {
+		return // still alone in queue
+	}
+
+	opponent := h.tournamentQueue[bestIdx]
+
+	// Remove both from queue (higher index first to avoid shifting issues)
+	if bestIdx > connIdx {
+		h.tournamentQueue = append(h.tournamentQueue[:bestIdx], h.tournamentQueue[bestIdx+1:]...)
+		h.tournamentQueue = append(h.tournamentQueue[:connIdx], h.tournamentQueue[connIdx+1:]...)
+	} else {
+		h.tournamentQueue = append(h.tournamentQueue[:connIdx], h.tournamentQueue[connIdx+1:]...)
+		h.tournamentQueue = append(h.tournamentQueue[:bestIdx], h.tournamentQueue[bestIdx+1:]...)
+	}
+
+	h.startTournamentRoom(opponent.conn, conn)
+}
+
+func (h *Hub) startTournamentRoom(p1, p2 *Conn) {
+	if h.activeRooms.Load() >= maxActiveRooms {
+		log.Printf("max rooms reached, rejecting tournament match %s vs %s", p1.ID, p2.ID)
+		go func() {
+			p1.ws.Close(websocket.StatusTryAgainLater, "server full")
+			p2.ws.Close(websocket.StatusTryAgainLater, "server full")
+		}()
+		return
+	}
+
+	p2.Nickname = deduplicateNickname(p1.Nickname, p2.Nickname)
+
+	h.activeRooms.Add(1)
+	log.Printf("tournament matched %s [%s] vs %s [%s] (rooms: %d)", p1.ID, p1.Nickname, p2.ID, p2.Nickname, h.activeRooms.Load())
+	h.creator.CreateTournamentRoom(p1, p2)
 }

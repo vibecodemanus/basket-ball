@@ -3,6 +3,7 @@ import { Game } from './game/game';
 import { Renderer } from './render/renderer';
 import { COURT_WIDTH, COURT_HEIGHT, HOOP_LEFT_X, HOOP_RIGHT_X } from './game/court';
 import { isTouchDevice } from './game/touch';
+import { showLeaderboard } from './ui/leaderboard';
 
 // ── Nickname management ──
 
@@ -31,6 +32,8 @@ const overlay = document.getElementById('nickname-overlay')!;
 const nicknameInput = document.getElementById('nickname-input') as HTMLInputElement;
 const nicknameOk = document.getElementById('nickname-ok')!;
 const nicknameError = document.getElementById('nickname-error')!;
+const tournamentBtn = document.getElementById('tournament-btn')!;
+const leaderboardBtn = document.getElementById('leaderboard-btn')!;
 
 function hideOverlay(): void {
   overlay.classList.add('hidden');
@@ -41,7 +44,7 @@ function showOverlay(): void {
   nicknameInput.focus();
 }
 
-function submitNickname(): void {
+function tryStartWithMode(mode: string): void {
   const valid = validateNickname(nicknameInput.value);
   if (!valid) {
     nicknameError.textContent = '2-12 characters (letters, digits, _)';
@@ -50,13 +53,16 @@ function submitNickname(): void {
   nicknameError.textContent = '';
   saveNickname(valid);
   hideOverlay();
-  startGame(valid);
+  startGame(valid, mode);
 }
 
-nicknameOk.addEventListener('click', submitNickname);
+nicknameOk.addEventListener('click', () => tryStartWithMode(''));
 nicknameInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') submitNickname();
+  if (e.key === 'Enter') tryStartWithMode('');
 });
+
+tournamentBtn.addEventListener('click', () => tryStartWithMode('tournament'));
+leaderboardBtn.addEventListener('click', () => showLeaderboard());
 
 // ── Game startup ──
 
@@ -72,7 +78,7 @@ function resizeCanvas() {
   canvas.style.height = `${Math.floor(COURT_HEIGHT * scale)}px`;
 }
 
-function startGame(nickname: string): void {
+function startGame(nickname: string, mode: string = ''): void {
   // Show canvas
   canvas.style.display = 'block';
   resizeCanvas();
@@ -87,8 +93,9 @@ function startGame(nickname: string): void {
   const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${wsProtocol}//${location.host}/ws`;
 
-  const socket = new GameSocket(wsUrl, nickname);
+  const socket = new GameSocket(wsUrl, nickname, mode);
   const game = new Game(socket, canvas);
+  game.isTournament = mode === 'tournament';
   const renderer = new Renderer(canvas);
 
   // Wire up score confetti
@@ -99,7 +106,7 @@ function startGame(nickname: string): void {
 
   setTimeout(() => socket.connect(), 500);
 
-  // ── Play Again (keyboard + touch) ──
+  // ── Play Again / Next Match (keyboard + touch) ──
   function triggerPlayAgain(): void {
     if (game.isGameOver() || game.opponentDisconnected) {
       socket.disconnect();
@@ -130,13 +137,10 @@ function startGame(nickname: string): void {
   requestAnimationFrame(loop);
 }
 
-// ── Init: check saved nickname ──
+// ── Init: always show overlay so user can choose mode ──
 
 const saved = getSavedNickname();
-const validSaved = saved ? validateNickname(saved) : null;
-if (validSaved) {
-  hideOverlay();
-  startGame(validSaved);
-} else {
-  showOverlay();
+if (saved) {
+  nicknameInput.value = saved;
 }
+showOverlay();

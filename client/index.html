@@ -71,7 +71,13 @@
     .nickname-box input::placeholder {
       color: #64748B;
     }
-    .nickname-box button {
+    .nickname-error {
+      color: #EF4444;
+      font-size: 12px;
+      margin-top: 8px;
+      min-height: 16px;
+    }
+    #nickname-ok {
       display: block;
       margin: 16px auto 0;
       background: #F97316;
@@ -85,15 +91,110 @@
       border-radius: 4px;
       letter-spacing: 2px;
     }
-    .nickname-box button:hover {
-      background: #EA580C;
+    #nickname-ok:hover { background: #EA580C; }
+    #tournament-btn {
+      display: block;
+      margin: 8px auto 0;
+      background: #8B5CF6;
+      border: none;
+      color: #FFF;
+      font-family: monospace;
+      font-size: 18px;
+      font-weight: bold;
+      padding: 10px 32px;
+      cursor: pointer;
+      border-radius: 4px;
+      letter-spacing: 2px;
     }
-    .nickname-error {
-      color: #EF4444;
-      font-size: 12px;
-      margin-top: 8px;
-      min-height: 16px;
+    #tournament-btn:hover { background: #7C3AED; }
+    #leaderboard-btn {
+      display: block;
+      margin: 8px auto 0;
+      background: transparent;
+      border: 2px solid #475569;
+      color: #94A3B8;
+      font-family: monospace;
+      font-size: 14px;
+      padding: 8px 24px;
+      cursor: pointer;
+      border-radius: 4px;
+      letter-spacing: 1px;
     }
+    #leaderboard-btn:hover { border-color: #F97316; color: #F97316; }
+
+    /* Leaderboard overlay */
+    #leaderboard-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      background: rgba(15, 23, 42, 0.97);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    #leaderboard-overlay.hidden { display: none; }
+    .leaderboard-box {
+      text-align: center;
+      max-width: 600px;
+      width: 90%;
+    }
+    .leaderboard-box h2 {
+      color: #FFD700;
+      font-size: 24px;
+      margin-bottom: 16px;
+      letter-spacing: 3px;
+      font-family: monospace;
+    }
+    .leaderboard-tabs { margin-bottom: 12px; }
+    .lb-tab {
+      background: transparent;
+      border: 2px solid #475569;
+      color: #94A3B8;
+      font-family: monospace;
+      font-size: 14px;
+      padding: 6px 20px;
+      cursor: pointer;
+      margin: 0 4px;
+      border-radius: 4px;
+    }
+    .lb-tab.active {
+      background: #F97316;
+      border-color: #F97316;
+      color: #FFF;
+    }
+    #leaderboard-content {
+      max-height: 300px;
+      overflow-y: auto;
+      margin-bottom: 16px;
+    }
+    #leaderboard-content table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: monospace;
+      color: #F8FAFC;
+      font-size: 13px;
+    }
+    #leaderboard-content th {
+      color: #FFD700;
+      border-bottom: 1px solid #475569;
+      padding: 6px 8px;
+      text-align: left;
+    }
+    #leaderboard-content td {
+      padding: 5px 8px;
+      border-bottom: 1px solid #1E293B;
+    }
+    #leaderboard-close {
+      background: #475569;
+      border: none;
+      color: #FFF;
+      font-family: monospace;
+      font-size: 16px;
+      padding: 8px 32px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    #leaderboard-close:hover { background: #64748B; }
   </style>
 </head>
 <body>
@@ -104,6 +205,19 @@
       <input id="nickname-input" type="text" maxlength="12" placeholder="Your nickname" autofocus>
       <div class="nickname-error" id="nickname-error"></div>
       <button id="nickname-ok">PLAY</button>
+      <button id="tournament-btn">TOURNAMENT</button>
+      <button id="leaderboard-btn">LEADERBOARD</button>
+    </div>
+  </div>
+  <div id="leaderboard-overlay" class="hidden">
+    <div class="leaderboard-box">
+      <h2>TOURNAMENT LEADERBOARD</h2>
+      <div class="leaderboard-tabs">
+        <button id="lb-tab-wins" class="lb-tab active">BY WINS</button>
+        <button id="lb-tab-points" class="lb-tab">BY POINTS</button>
+      </div>
+      <div id="leaderboard-content"></div>
+      <button id="leaderboard-close">BACK</button>
     </div>
   </div>
   <canvas id="game"></canvas>

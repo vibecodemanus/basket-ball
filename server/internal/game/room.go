@@ -11,13 +11,14 @@ import (
 )
 
 type Room struct {
-	conns     [2]*ws.Conn
-	nicknames [2]string
-	state     GameState
-	inputs    [2]PlayerInput
-	inputMu   sync.Mutex
-	cancel    context.CancelFunc
-	done      chan struct{}
+	conns      [2]*ws.Conn
+	nicknames  [2]string
+	state      GameState
+	inputs     [2]PlayerInput
+	inputMu    sync.Mutex
+	cancel     context.CancelFunc
+	done       chan struct{}
+	tournament *Tournament // nil for regular games
 }
 
 func NewRoom(p1, p2 *ws.Conn) *Room {
@@ -40,6 +41,12 @@ func NewRoom(p1, p2 *ws.Conn) *Room {
 	return r
 }
 
+func NewTournamentRoom(p1, p2 *ws.Conn, t *Tournament) *Room {
+	r := NewRoom(p1, p2)
+	r.tournament = t
+	return r
+}
+
 func (r *Room) Start(ctx context.Context) {
 	ctx, r.cancel = context.WithCancel(ctx)
 	r.done = make(chan struct{})
@@ -47,8 +54,9 @@ func (r *Room) Start(ctx context.Context) {
 	// Send GameStart to both players (includes both nicknames)
 	for i, c := range r.conns {
 		msg, _ := ws.NewMessage(ws.MsgGameStart, 0, ws.GameStartPayload{
-			PlayerIndex: uint8(i),
-			Names:       r.nicknames,
+			PlayerIndex:  uint8(i),
+			Names:        r.nicknames,
+			IsTournament: r.tournament != nil,
 		})
 		c.Send(msg)
 	}
@@ -394,6 +402,37 @@ func (r *Room) gameOver() {
 			Score:  s.Score,
 		})
 		c.Send(msg)
+	}
+
+	// Record tournament result and send updated stats
+	if r.tournament != nil {
+		r.tournament.RecordResult(r.nicknames[0], r.nicknames[1], s.Score[0], s.Score[1])
+
+		for i, c := range r.conns {
+			otherIdx := 1 - i
+			myStats := r.tournament.GetStats(r.nicknames[i])
+			oppStats := r.tournament.GetStats(r.nicknames[otherIdx])
+
+			msg, _ := ws.NewMessage(ws.MsgTournamentResult, s.Tick, ws.TournamentResultPayload{
+				YourStats: ws.TournamentPlayerStats{
+					Nickname:    myStats.Nickname,
+					Wins:        myStats.Wins,
+					Losses:      myStats.Losses,
+					Draws:       myStats.Draws,
+					PointsFor:   myStats.PointsFor,
+					GamesPlayed: myStats.GamesPlayed,
+				},
+				OpponentStats: ws.TournamentPlayerStats{
+					Nickname:    oppStats.Nickname,
+					Wins:        oppStats.Wins,
+					Losses:      oppStats.Losses,
+					Draws:       oppStats.Draws,
+					PointsFor:   oppStats.PointsFor,
+					GamesPlayed: oppStats.GamesPlayed,
+				},
+			})
+			c.Send(msg)
+		}
 	}
 }
 

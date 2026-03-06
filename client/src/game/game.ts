@@ -11,8 +11,10 @@ import {
   MsgPlayerInput,
   MsgPlayerDisconnected,
   MsgScored,
+  MsgTournamentResult,
   Message,
   ScoredPayload,
+  TournamentResultPayload,
 } from '../network/protocol';
 import { GameSocket } from '../network/socket';
 import { InputManager } from './input';
@@ -29,6 +31,8 @@ export class Game {
   opponentDisconnected: boolean = false;
   lastScoreFlash: { scorer: number; points: number; time: number } | null = null;
   gameOverData: GameOverPayload | null = null;
+  isTournament: boolean = false;
+  tournamentResult: TournamentResultPayload | null = null;
   onScore: ((scorerIndex: number) => void) | null = null;
   private prevMoveX = 0;
   private prevJump = false;
@@ -50,8 +54,9 @@ export class Game {
     this.playerIndex = -1;
     this.gameOverData = null;
     this.lastScoreFlash = null;
+    this.tournamentResult = null;
     this.interpolator.reset();
-    // Don't reset opponentDisconnected here — it's reset on new GameStart
+    // Don't reset opponentDisconnected or isTournament here — they're reset on new GameStart
   }
 
   /** Called every frame by the render loop to get smoothed state */
@@ -71,8 +76,10 @@ export class Game {
         this.connected = true;
         this.gameOverData = null;
         this.opponentDisconnected = false;
+        this.isTournament = payload.isTournament || false;
+        this.tournamentResult = null;
         this.interpolator.reset();
-        console.log(`Game started! You are player ${this.playerIndex} (${this.playerNames[this.playerIndex]})`);
+        console.log(`Game started! You are player ${this.playerIndex} (${this.playerNames[this.playerIndex]})${this.isTournament ? ' [TOURNAMENT]' : ''}`);
         break;
       }
       case MsgGameState: {
@@ -94,6 +101,10 @@ export class Game {
       }
       case MsgPlayerDisconnected: {
         this.opponentDisconnected = true;
+        break;
+      }
+      case MsgTournamentResult: {
+        this.tournamentResult = msg.payload as TournamentResultPayload;
         break;
       }
     }

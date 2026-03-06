@@ -109,7 +109,7 @@ export class Renderer {
     }
 
     if (!game.connected) {
-      this.drawWaiting(now);
+      this.drawWaiting(now, game.isTournament);
     }
 
     if (game.opponentDisconnected && !game.isGameOver()) {
@@ -481,9 +481,20 @@ export class Renderer {
       }
     }
 
+    // Tournament stats
+    if (game.isTournament && game.tournamentResult) {
+      const tr = game.tournamentResult;
+      drawText(ctx, 'TOURNAMENT', COURT_WIDTH / 2, 310, '#8B5CF6', 14, 'center');
+      drawText(ctx, `Record: ${tr.yourStats.wins}W ${tr.yourStats.losses}L ${tr.yourStats.draws}D  |  Total Pts: ${tr.yourStats.pointsFor}`,
+        COURT_WIDTH / 2, 328, '#94A3B8', 11, 'center');
+    }
+
     const pulse = 0.5 + Math.sin(now / 500) * 0.5;
     ctx.globalAlpha = 0.6 + pulse * 0.4;
-    const restartHint = game.getTouchController().isEnabled() ? 'Tap to play again' : 'Press ENTER to play again';
+    const isTouch = game.getTouchController().isEnabled();
+    const restartHint = game.isTournament
+      ? (isTouch ? 'Tap for next match' : 'Press ENTER for next match')
+      : (isTouch ? 'Tap to play again' : 'Press ENTER to play again');
     drawText(ctx, restartHint, COURT_WIDTH / 2, 350, '#94A3B8', 16, 'center');
     ctx.globalAlpha = 1;
   }
@@ -497,13 +508,17 @@ export class Renderer {
     drawText(ctx, hint, COURT_WIDTH / 2, COURT_HEIGHT / 2 + 25, '#94A3B8', 14, 'center');
   }
 
-  private drawWaiting(now: number): void {
+  private drawWaiting(now: number, isTournament: boolean = false): void {
     const ctx = this.ctx;
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
     ctx.fillRect(0, 0, COURT_WIDTH, COURT_HEIGHT);
 
     drawText(ctx, 'PIXEL', COURT_WIDTH / 2, COURT_HEIGHT / 2 - 70, '#FFD700', 40, 'center');
     drawText(ctx, 'BASKETBALL', COURT_WIDTH / 2, COURT_HEIGHT / 2 - 30, '#FFD700', 40, 'center');
+
+    if (isTournament) {
+      drawText(ctx, 'TOURNAMENT MODE', COURT_WIDTH / 2, COURT_HEIGHT / 2 - 100, '#8B5CF6', 16, 'center');
+    }
 
     const ballY = COURT_HEIGHT / 2 + 10;
     const bounce = Math.sin(now / 300) * 5;

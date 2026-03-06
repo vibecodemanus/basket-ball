@@ -9,6 +9,7 @@ export const MsgGameOver = 0x83;
 export const MsgScored = 0x84;
 export const MsgPong = 0x86;
 export const MsgPlayerDisconnected = 0x87;
+export const MsgTournamentResult = 0x88;
 
 export interface Message {
   type: number;
@@ -25,6 +26,21 @@ export interface PlayerInputPayload {
 export interface GameStartPayload {
   playerIndex: number;
   names: [string, string];
+  isTournament?: boolean;
+}
+
+export interface TournamentPlayerStats {
+  nickname: string;
+  wins: number;
+  losses: number;
+  draws: number;
+  pointsFor: number;
+  gamesPlayed: number;
+}
+
+export interface TournamentResultPayload {
+  yourStats: TournamentPlayerStats;
+  opponentStats: TournamentPlayerStats;
 }
 
 export const enum GamePhase {

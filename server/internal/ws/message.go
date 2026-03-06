@@ -17,6 +17,7 @@ const (
 	MsgScored             uint8 = 0x84
 	MsgPong               uint8 = 0x86
 	MsgPlayerDisconnected uint8 = 0x87
+	MsgTournamentResult   uint8 = 0x88
 )
 
 type Message struct {
@@ -40,8 +41,23 @@ type PingPayload struct {
 }
 
 type GameStartPayload struct {
-	PlayerIndex uint8     `json:"playerIndex"`
-	Names       [2]string `json:"names"`
+	PlayerIndex  uint8     `json:"playerIndex"`
+	Names        [2]string `json:"names"`
+	IsTournament bool      `json:"isTournament,omitempty"`
+}
+
+type TournamentPlayerStats struct {
+	Nickname    string `json:"nickname"`
+	Wins        int    `json:"wins"`
+	Losses      int    `json:"losses"`
+	Draws       int    `json:"draws"`
+	PointsFor   int    `json:"pointsFor"`
+	GamesPlayed int    `json:"gamesPlayed"`
+}
+
+type TournamentResultPayload struct {
+	YourStats     TournamentPlayerStats `json:"yourStats"`
+	OpponentStats TournamentPlayerStats `json:"opponentStats"`
 }
 
 type PongPayload struct {

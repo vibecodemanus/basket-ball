@@ -7,6 +7,7 @@ export class GameSocket {
   private ws: WebSocket | null = null;
   private baseUrl: string;
   private nickname: string;
+  private mode: string;
   private handler: MessageHandler | null = null;
   private closeHandler: CloseHandler | null = null;
   private reconnectTimer: number | null = null;
@@ -17,14 +18,18 @@ export class GameSocket {
   private static readonly BASE_DELAY_MS = 1000;
   private static readonly MAX_DELAY_MS = 30000;
 
-  constructor(baseUrl: string, nickname: string) {
+  constructor(baseUrl: string, nickname: string, mode: string = '') {
     this.baseUrl = baseUrl;
     this.nickname = nickname;
+    this.mode = mode;
   }
 
   connect(): void {
     this.autoReconnect = true;
-    const url = `${this.baseUrl}?name=${encodeURIComponent(this.nickname)}`;
+    let url = `${this.baseUrl}?name=${encodeURIComponent(this.nickname)}`;
+    if (this.mode) {
+      url += `&mode=${encodeURIComponent(this.mode)}`;
+    }
     this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {

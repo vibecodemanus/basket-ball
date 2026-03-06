@@ -29,11 +29,21 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 type GameManager struct {
-	hub *ws.Hub
+	hub        *ws.Hub
+	tournament *game.Tournament
 }
 
 func (gm *GameManager) CreateRoom(p1, p2 *ws.Conn) {
 	room := game.NewRoom(p1, p2)
+	room.Start(context.Background())
+	go func() {
+		<-room.Done()
+		gm.hub.RoomEnded()
+	}()
+}
+
+func (gm *GameManager) CreateTournamentRoom(p1, p2 *ws.Conn) {
+	room := game.NewTournamentRoom(p1, p2, gm.tournament)
 	room.Start(context.Background())
 	go func() {
 		<-room.Done()
@@ -67,8 +77,9 @@ func main() {
 	// Create rate limiter: max 200 conns/IP (100 rooms × 2 players), 120 msgs/sec/IP
 	limiter := middleware.NewIPRateLimiter(200, 120, time.Second, trustProxy)
 
-	manager := &GameManager{}
-	hub := ws.NewHub(manager, limiter, originPatterns)
+	tournament := game.NewTournament()
+	manager := &GameManager{tournament: tournament}
+	hub := ws.NewHub(manager, limiter, originPatterns, tournament)
 	manager.hub = hub
 
 	mux := http.NewServeMux()
@@ -79,6 +90,21 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		stats := hub.Stats()
 		json.NewEncoder(w).Encode(stats)
+	})
+
+	// Tournament leaderboard endpoint
+	mux.HandleFunc("/tournament/leaderboard", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		sortBy := r.URL.Query().Get("sort")
+		limit := 20
+
+		var entries []game.LeaderboardEntry
+		if sortBy == "points" {
+			entries = tournament.LeaderboardByPoints(limit)
+		} else {
+			entries = tournament.LeaderboardByWins(limit)
+		}
+		json.NewEncoder(w).Encode(entries)
 	})
 
 	// Static files with no-cache headers (prevents stale JS in browser)
